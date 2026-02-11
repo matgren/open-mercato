@@ -104,3 +104,46 @@ export class PosSession {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+@Entity({ tableName: 'pos_cash_movements' })
+@Index({ name: 'pos_cash_movements_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'pos_cash_movements_session_idx', properties: ['sessionId', 'organizationId', 'tenantId'] })
+@Index({ name: 'pos_cash_movements_type_idx', properties: ['type', 'organizationId', 'tenantId'] })
+@Index({ name: 'pos_cash_movements_user_idx', properties: ['createdByUserId', 'organizationId', 'tenantId'] })
+export class PosCashMovement {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'session_id', type: 'uuid' })
+  sessionId!: string
+
+  @Property({ name: 'type', type: 'text' })
+  type!: 'cash_in' | 'cash_out' | 'float_adjustment' | 'payout'
+
+  @Property({ name: 'amount', type: 'numeric', precision: 18, scale: 4 })
+  amount!: string
+
+  @Property({ name: 'reason', type: 'text' })
+  reason!: string
+
+  @Property({ name: 'reference', type: 'text', nullable: true })
+  reference?: string | null
+
+  @Property({ name: 'created_by_user_id', type: 'uuid' })
+  createdByUserId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

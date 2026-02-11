@@ -74,3 +74,33 @@ export const closePosSessionSchema = z.object({
     closingCashAmount: z.string(),
     expectedCashAmount: z.string().optional(),
 })
+
+export const posCashMovementCreateSchema = z.object({
+    ...scopedCreateFields,
+    sessionId: z.string().uuid(),
+    type: z.enum(['cash_in', 'cash_out', 'float_adjustment', 'payout']),
+    amount: z.string(),
+    reason: z.string().min(1),
+    reference: z.string().nullable().optional(),
+    createdByUserId: z.string().uuid(),
+})
+
+export const posCashMovementUpdateSchema = z.object({
+    ...scopedUpdateFields,
+    sessionId: z.string().uuid().optional(),
+    type: z.enum(['cash_in', 'cash_out', 'float_adjustment', 'payout']).optional(),
+    amount: z.string().optional(),
+    reason: z.string().min(1).optional(),
+    reference: z.string().nullable().optional(),
+    createdByUserId: z.string().uuid().optional(),
+})
+
+export type PosCashMovementCreateInput = z.infer<typeof posCashMovementCreateSchema>
+export type PosCashMovementUpdateInput = z.infer<typeof posCashMovementUpdateSchema>
+
+export const posCashMovementSchema = posCashMovementCreateSchema.merge(posCashMovementUpdateSchema).extend({
+    id: z.string().uuid(),
+    createdAt: z.date(),
+    updatedAt: z.date(),
+    deletedAt: z.date().nullable(),
+})
