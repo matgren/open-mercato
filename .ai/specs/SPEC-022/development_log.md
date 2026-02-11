@@ -37,7 +37,7 @@ Status Legend:
 | A-06 | ✅ Done | `0c07b87` | API Acceptance: Register |
 | C06c | ✅ Done | `219133c2` | PIN Support |
 | C07 | ✅ Done | `8587f802` | PosSession Entity |
-| C08 | in_progress | — | PosSession Commands |
+| C08 | ✅ Done | `8d4f3dc0` | PosSession Commands |
 | C09 | ⬜ Next | — | PosSession API Routes |
 | A-09 | 🤝 User | — | Acceptance: Session Lifecycle |
 | C10 | ⬜ Next | — | PosCashMovement Entity |
@@ -69,4 +69,16 @@ _Required for each step:_
 - **Review Findings**: No violations found
 - **Patterns discovered**: Standard entity structure with `organizationId`, `tenantId`, `createdAt`, `updatedAt`, `deletedAt` and Mikro-ORM decorators (`@Entity`, `@PrimaryKey`, `@Property`, `@Index`) used consistently. Use of `jsonb` for metadata and `numeric` for monetary values.
 - **Gotchas**: None.
+
+### From C08 (2026-02-11)
+- What was implemented: Implemented CRUD commands for `PosSession` entity (`CreatePosSession`, `UpdatePosSession`, `DeletePosSession`), and specific lifecycle commands (`OpenPosSession`, `ClosePosSession`). Defined Zod schemas for `PosSession` inputs and updated events for `PosSession` lifecycle.
+- Files changed:
+    - `packages/core/src/modules/pos/data/validators.ts`
+    - `packages/core/src/modules/pos/commands/shared.ts`
+    - `packages/core/src/modules/pos/commands/sessions.ts` (new)
+    - `packages/core/src/modules/pos/events.ts`
+    - `.ai/specs/SPEC-022/implementation-plans/C08.md` (new)
+- **Review Findings**: No violations found
+- **Patterns discovered**: Copied `CommandHandler` pattern from `registers.ts`, including `loadSnapshot`, `withAtomicFlush`, `emitCrudSideEffects`/`emitCrudUndoSideEffects`. Used `requirePosSession` helper.
+- **Gotchas**: Remembered to update `shared.ts` with `requirePosSession` and `events.ts` with CRUD events.
 
