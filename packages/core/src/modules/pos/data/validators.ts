@@ -55,3 +55,22 @@ export const posSessionUpdateSchema = z.object({
 
 export type PosSessionCreateInput = z.infer<typeof posSessionCreateSchema>
 export type PosSessionUpdateInput = z.infer<typeof posSessionUpdateSchema>
+
+export const posSessionSchema = posSessionCreateSchema.merge(posSessionUpdateSchema).extend({
+    id: z.string().uuid(),
+    status: z.enum(['open', 'closed', 'suspended']),
+    openedAt: z.date(),
+    createdAt: z.date(),
+    updatedAt: z.date(),
+    deletedAt: z.date().nullable(),
+})
+
+export const openPosSessionSchema = z.object({
+    pin: z.string().min(4).max(6),
+})
+
+export const closePosSessionSchema = z.object({
+    pin: z.string().min(4).max(6),
+    closingCashAmount: z.string(),
+    expectedCashAmount: z.string().optional(),
+})

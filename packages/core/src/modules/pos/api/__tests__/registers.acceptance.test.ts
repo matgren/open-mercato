@@ -12,7 +12,7 @@ const mockItems = [
 const mockEm = {
     fork: () => mockEm,
     findOne: jest.fn(),
-    find: jest.fn(),
+    find: jest.fn(async () => []),
     create: jest.fn((cls, data) => ({ ...data, id: randomUUID() })),
     persist: jest.fn(),
     flush: jest.fn(),

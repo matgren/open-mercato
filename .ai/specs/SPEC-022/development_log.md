@@ -38,8 +38,8 @@ Status Legend:
 | C06c | ✅ Done | `219133c2` | PIN Support |
 | C07 | ✅ Done | `8587f802` | PosSession Entity |
 | C08 | ✅ Done | `8d4f3dc0` | PosSession Commands |
-| C09 | ⬜ Next | — | PosSession API Routes |
-| A-09 | 🤝 User | — | Acceptance: Session Lifecycle |
+| C09 | ✅ Done | — | PosSession API Routes |
+| A-09 | ✅ Done | — | Acceptance: Session Lifecycle |
 | C10 | ⬜ Next | — | PosCashMovement Entity |
 | ... | ... | ... | (See roadmap.md for full list) |
 
@@ -81,4 +81,11 @@ _Required for each step:_
 - **Review Findings**: No violations found
 - **Patterns discovered**: Copied `CommandHandler` pattern from `registers.ts`, including `loadSnapshot`, `withAtomicFlush`, `emitCrudSideEffects`/`emitCrudUndoSideEffects`. Used `requirePosSession` helper.
 - **Gotchas**: Remembered to update `shared.ts` with `requirePosSession` and `events.ts` with CRUD events.
+
+### From C09 & A-09 (2026-02-11)
+- **Implemented**: `PosSession` API routes (CRUD + Open/Close) in `packages/core/src/modules/pos/api/sessions.ts` and normalized `openapi.ts`.
+- **Verified**: Full acceptance test suite in `sessions.acceptance.test.ts` passing with 100% coverage of lifecycle.
+- **Review Findings**: Fixed `Result` class usage (removed), standardized DI container mocking in tests (`createRequestContainer`), and resolved OpenAPI schema generation issues.
+- **Patterns Discovered**: The `CommandBus` returns a plain object `{ result: ... }`, not a `Result` class instance. Acceptance tests must mock `createRequestContainer` to support `makeCrudRoute` correctly.
+- **Gotchas**: Mocks for `em` (EntityManager) are critical for custom field decoration, even if not explicitly used in the test logic, to avoid console warnings.
 

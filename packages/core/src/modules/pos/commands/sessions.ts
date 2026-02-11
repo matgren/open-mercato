@@ -7,6 +7,7 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
+import { User } from '../../auth/data/entities'
 import { PosSession } from '../data/entities'
 import {
     posSessionCreateSchema,
@@ -319,7 +320,7 @@ export const deletePosSessionCommand: CommandHandler<{ id: string }, { id: strin
     },
 }
 
-export const openPosSessionCommand: CommandHandler<{ id: string }, { id: string }> = {
+export const openPosSessionCommand: CommandHandler<{ id: string, pin: string }, { id: string }> = {
     id: 'pos.session.open',
     isUndoable: true,
     async prepare(input, ctx) {
@@ -333,6 +334,17 @@ export const openPosSessionCommand: CommandHandler<{ id: string }, { id: string 
         ensureOrganizationScope(ctx, session.organizationId)
         ensureTenantScope(ctx, session.tenantId)
 
+        const userId = ctx.auth?.userId
+        if (!userId) throw new Error('Authentication is required to open a POS session.')
+        const user = await em.findOne(User, { id: userId })
+        if (!user || !user.pinHash) throw new Error('User not found or PIN not set up.')
+
+        const bcrypt = ctx.container.resolve('bcrypt')
+        const pinMatches = await bcrypt.compare(input.pin, user.pinHash)
+        if (!pinMatches) {
+            throw new Error('Invalid PIN.')
+        }
+
         if (session.status === 'open') {
             throw new Error('POS session is already open.')
         }
@@ -341,6 +353,7 @@ export const openPosSessionCommand: CommandHandler<{ id: string }, { id: string 
             () => {
                 session.status = 'open'
                 session.closedAt = null // Clear closedAt if re-opening
+                session.openedByUserId = userId
                 session.updatedAt = new Date()
             }
         ], { transaction: true, label: 'pos.session.open' })
@@ -410,7 +423,7 @@ export const openPosSessionCommand: CommandHandler<{ id: string }, { id: string 
 }
 
 export const closePosSessionCommand: CommandHandler<
-    { id: string; closedByUserId: string; closingCashAmount: string; expectedCashAmount?: string; varianceAmount?: string },
+    { id: string; pin: string, closingCashAmount: string; expectedCashAmount?: string; },
     { id: string }
 > = {
     id: 'pos.session.close',
@@ -426,18 +439,31 @@ export const closePosSessionCommand: CommandHandler<
         ensureOrganizationScope(ctx, session.organizationId)
         ensureTenantScope(ctx, session.tenantId)
 
+        const userId = ctx.auth?.userId
+        if (!userId) throw new Error('Authentication is required to close a POS session.')
+        const user = await em.findOne(User, { id: userId })
+        if (!user || !user.pinHash) throw new Error('User not found or PIN not set up.')
+
+        const bcrypt = ctx.container.resolve('bcrypt')
+        const pinMatches = await bcrypt.compare(input.pin, user.pinHash)
+        if (!pinMatches) {
+            throw new Error('Invalid PIN.')
+        }
+
         if (session.status === 'closed') {
             throw new Error('POS session is already closed.')
         }
 
+        const variance = (parseFloat(input.closingCashAmount) - parseFloat(session.openingFloatAmount)).toString()
+
         await withAtomicFlush(em, [
             () => {
                 session.status = 'closed'
-                session.closedByUserId = input.closedByUserId
+                session.closedByUserId = userId
                 session.closedAt = new Date()
                 session.closingCashAmount = input.closingCashAmount
-                session.expectedCashAmount = input.expectedCashAmount ?? null
-                session.varianceAmount = input.varianceAmount ?? null
+                session.expectedCashAmount = input.expectedCashAmount ?? session.openingFloatAmount
+                session.varianceAmount = variance
                 session.updatedAt = new Date()
             }
         ], { transaction: true, label: 'pos.session.close' })
