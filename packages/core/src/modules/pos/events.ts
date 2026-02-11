@@ -3,6 +3,27 @@ import { KnownModuleId } from '#generated/entities.ids.generated'
 
 const events = [
     {
+        id: 'pos.session.created',
+        label: 'POS Session Created',
+        description: 'A new POS session has been created.',
+        entity: 'pos_session',
+        category: 'crud'
+    },
+    {
+        id: 'pos.session.updated',
+        label: 'POS Session Updated',
+        description: 'A POS session has been updated.',
+        entity: 'pos_session',
+        category: 'crud'
+    },
+    {
+        id: 'pos.session.deleted',
+        label: 'POS Session Deleted',
+        description: 'A POS session has been deleted.',
+        entity: 'pos_session',
+        category: 'crud'
+    },
+    {
         id: 'pos.session.opened',
         label: 'POS Session Opened',
         description: 'A new terminal session has started.',

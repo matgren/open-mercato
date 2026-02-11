@@ -37,7 +37,7 @@ Status Legend:
 | A-06 | ✅ Done | `0c07b87` | API Acceptance: Register |
 | C06c | ✅ Done | `219133c2` | PIN Support |
 | C07 | ✅ Done | `8587f802` | PosSession Entity |
-| C08 | ⬜ Next | — | PosSession Commands |
+| C08 | in_progress | — | PosSession Commands |
 | C09 | ⬜ Next | — | PosSession API Routes |
 | A-09 | 🤝 User | — | Acceptance: Session Lifecycle |
 | C10 | ⬜ Next | — | PosCashMovement Entity |

@@ -29,3 +29,29 @@ export const posRegisterUpdateSchema = z.object({
 
 export type PosRegisterCreateInput = z.infer<typeof posRegisterCreateSchema>
 export type PosRegisterUpdateInput = z.infer<typeof posRegisterUpdateSchema>
+
+export const posSessionCreateSchema = z.object({
+    ...scopedCreateFields,
+    registerId: z.string().uuid(),
+    openedByUserId: z.string().uuid(),
+    openingFloatAmount: z.string(), // MikroORM `numeric` type is represented as string in TS
+    currencyCode: z.string().length(3), // ISO 4217 currency code (e.g., "USD")
+    metadata: z.record(z.unknown()).nullable().optional(),
+})
+
+export const posSessionUpdateSchema = z.object({
+    ...scopedUpdateFields,
+    registerId: z.string().uuid().optional(),
+    openedByUserId: z.string().uuid().optional(),
+    closedByUserId: z.string().uuid().nullable().optional(),
+    status: z.enum(['open', 'closed', 'suspended']).optional(),
+    closedAt: z.date().nullable().optional(),
+    closingCashAmount: z.string().nullable().optional(),
+    expectedCashAmount: z.string().nullable().optional(),
+    varianceAmount: z.string().nullable().optional(),
+    currencyCode: z.string().length(3).optional(),
+    metadata: z.record(z.unknown()).nullable().optional(),
+})
+
+export type PosSessionCreateInput = z.infer<typeof posSessionCreateSchema>
+export type PosSessionUpdateInput = z.infer<typeof posSessionUpdateSchema>
