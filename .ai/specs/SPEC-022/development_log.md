@@ -62,3 +62,11 @@ _Required for each step:_
 - **Review Findings**: No violations found
 - **Patterns discovered**: The `User` entity stores direct password hashes (`passwordHash`), so `pinHash` follows the same pattern directly on the `User` entity.
 - **Gotchas**: Remember to implement PIN hashing (e.g., with `bcryptjs`) before saving to the database.
+
+### From C07 (2026-02-11)
+- What was implemented: PosSession Entity created in `packages/core/src/modules/pos/data/entities.ts`.
+- Files changed: `packages/core/src/modules/pos/data/entities.ts`
+- **Review Findings**: No violations found
+- **Patterns discovered**: Standard entity structure with `organizationId`, `tenantId`, `createdAt`, `updatedAt`, `deletedAt` and Mikro-ORM decorators (`@Entity`, `@PrimaryKey`, `@Property`, `@Index`) used consistently. Use of `jsonb` for metadata and `numeric` for monetary values.
+- **Gotchas**: None.
+
