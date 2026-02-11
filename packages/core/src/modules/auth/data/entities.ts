@@ -24,6 +24,9 @@ export class User {
   @Property({ name: 'password_hash', type: 'text', nullable: true })
   passwordHash?: string | null
 
+  @Property({ name: 'pin_hash', type: 'text', nullable: true })
+  pinHash?: string | null
+
   @Property({ name: 'is_confirmed', type: 'boolean', default: true })
   isConfirmed: boolean = true
 

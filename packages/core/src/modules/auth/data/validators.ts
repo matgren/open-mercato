@@ -4,6 +4,8 @@ import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolic
 const passwordSchema = buildPasswordSchema()
 
 // Core auth validators
+export const pinSchema = z.string().regex(/^\d{4,6}$/, 'PIN must be 4-6 digits')
+
 export const userLoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
