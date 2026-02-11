@@ -13,6 +13,19 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 DEV_LOG="$SCRIPT_DIR/development_log.md"
 PROMPT_FILE="$SCRIPT_DIR/prompt.md"
 MAX_ITERATIONS="${1:-5}"
+LOCK_FILE="$SCRIPT_DIR/.ralph.lock"
+
+# ── Lock Mechanism: Prevent parallel runs ──
+if [ -f "$LOCK_FILE" ]; then
+  LOCK_PID=$(cat "$LOCK_FILE")
+  if ps -p "$LOCK_PID" > /dev/null; then
+    echo "❌ Ralph is already running (PID: $LOCK_PID). Exiting."
+    exit 1
+  fi
+fi
+echo $$ > "$LOCK_FILE"
+trap "rm -f $LOCK_FILE" EXIT
+
 
 # Preflight checks — ensure gemini is in PATH
 # Source nvm if available; also add all nvm node bin directories to PATH as fallback
@@ -81,16 +94,43 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # ── Snapshot commit count before the agent runs ──
   COMMITS_BEFORE=$(git rev-list --count HEAD)
 
-  # ── Run Gemini CLI with the prompt file ──
-  OUTPUT=$(gemini -p "$(cat "$PROMPT_FILE")" --model auto --yolo 2>&1 | tee /dev/stderr) || true
+  # ── Run Gemini CLI with the prompt file (with Retry Logic) ──
+  RETRY_COUNT=0
+  MAX_RETRIES=3
+  BACKOFF=30
 
-  # ── Check for completion signal ──
-  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
-    echo ""
-    echo "✅ Ralph completed all tasks!"
-    echo "   Finished at iteration $i of $MAX_ITERATIONS"
-    exit 0
-  fi
+  while [ $RETRY_COUNT -le $MAX_RETRIES ]; do
+    echo "🤖 Running Gemini CLI (Attempt $((RETRY_COUNT + 1))/$((MAX_RETRIES + 1)))..."
+    
+    # Run gemini and capture output
+    OUTPUT=$(gemini -p "$(cat "$PROMPT_FILE")" --model auto --yolo 2>&1 | tee /dev/stderr) || true
+    
+    # Check for rate limit errors (429, RESOURCE_EXHAUSTED)
+    if echo "$OUTPUT" | grep -Ei "429|RESOURCE_EXHAUSTED|Too Many Requests" > /dev/null; then
+      if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+        echo "⚠️  Rate limit hit (429). Retrying in ${BACKOFF}s..."
+        sleep $BACKOFF
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        BACKOFF=$((BACKOFF * 2)) # Exponential backoff
+        continue
+      else
+        echo "❌ Rate limit hit and max retries reached. Stopping iterations."
+        exit 1
+      fi
+    fi
+
+    # Check for completion signal
+    if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+      echo ""
+      echo "✅ Ralph completed all tasks!"
+      echo "   Finished at iteration $i of $MAX_ITERATIONS"
+      exit 0
+    fi
+
+    # If no rate limit and no completion, proceed to gates
+    break
+  done
+
 
   # ── Gate 2: Post-commit review gate ──
   COMMITS_AFTER=$(git rev-list --count HEAD)
@@ -118,8 +158,8 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   fi
 
   echo ""
-  echo "Iteration $i complete. Pausing 3s before next iteration..."
-  sleep 3
+  echo "Iteration $i complete. Pausing 10s before next iteration..."
+  sleep 10
 done
 
 echo ""
