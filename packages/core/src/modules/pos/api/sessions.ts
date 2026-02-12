@@ -137,11 +137,7 @@ export async function POST_OPEN(req: Request, ctx: any) {
         ctx,
     })
 
-<<<<<<< HEAD
-    return NextResponse.json(result, { status: 200 })
-=======
     return Response.json(result, { status: 200 })
->>>>>>> fix/dev-environment
 }
 
 export async function POST_CLOSE(req: Request, ctx: any) {
