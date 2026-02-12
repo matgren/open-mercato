@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
-import { NextResponse } from 'next/server'
 import { CrudHttpError as HttpError } from '@open-mercato/shared/lib/crud/errors'
 import { container } from '@open-mercato/shared/lib/di/container'
 import { PosSession } from '../data/entities'
@@ -138,7 +137,11 @@ export async function POST_OPEN(req: Request, ctx: any) {
         ctx,
     })
 
+<<<<<<< HEAD
     return NextResponse.json(result, { status: 200 })
+=======
+    return Response.json(result, { status: 200 })
+>>>>>>> fix/dev-environment
 }
 
 export async function POST_CLOSE(req: Request, ctx: any) {
@@ -152,7 +155,7 @@ export async function POST_CLOSE(req: Request, ctx: any) {
         ctx,
     })
 
-    return NextResponse.json(result, { status: 200 })
+    return Response.json(result, { status: 200 })
 }
 
 // OpenAPI
