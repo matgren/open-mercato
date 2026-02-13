@@ -53,7 +53,7 @@ Status Legend:
 | C18 | ✅ Done | `e301582c` | Cart Completion |
 | C19 | ✅ Done | — | PosReceipt Entity |
 | C20 | ✅ Done | — | PosReceipt Generation Logic |
-| C21 | ✅ Done | — | PosReceipt API |
+| C21 | ✅ Done | `24b454b0` | PosReceipt API |
 | C22 | ⬜ Next | — | Scaffolding & Module Routing |
 
 
