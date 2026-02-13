@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C11b (PosCashMovement API Routes)
-- **Next Step**: C12 (PosCart Entity)
+- **Last Completed Step**: C12 (PosCart Entity)
+- **Next Step**: C13 (PosCartLine Entity)
 
 ### Step Tracker
 
@@ -43,6 +43,8 @@ Status Legend:
 | C10 | ✅ Done | `db78ee98` | PosCashMovement Entity |
 | C11 | ✅ Done | `11a6f3cd` | PosCashMovement Commands |
 | C11b | ✅ Done | — | PosCashMovement API Routes |
+| C12 | ✅ Done | `665e3f8b` | PosCart Entity |
+| C13 | ⬜ Next | — | PosCartLine Entity |
 | ... | ... | ... | (See roadmap.md for full list) |
 
 ---
@@ -104,9 +106,8 @@ _Required for each step:_
 - **Review Findings**: No violations found.
 - **Patterns Discovered**: Follow the `CommandHandler` archetype for POS: `ensureOrganizationScope`, `ensureTenantScope`, `withAtomicFlush` for persistence, and `emitCrudSideEffects`/`emitCrudUndoSideEffects` for events.
 - **Gotchas**: Ensure `createdByUserId` is correctly captured in snapshots to support full undo/audit fidelity. Verify that `index.ts` in the commands folder imports all newly created command files to register them in the `commandBus`.
-### From C11b (2026-02-13)
-- **Implemented**: `PosCashMovement` API routes in `packages/core/src/modules/pos/api/cash-movements.ts`.
-- **Verified**: Acceptance tests passing for creation, listing, updating, and deletion.
-- **Review Findings**: No violations found (after fixing a missing import).
-- **Patterns Discovered**: Use `makeCrudRoute` for standard entity management. Custom actions can be added by extending the `actions` object or adding separate functions.
-- **Gotchas**: Ensure all helpers (e.g., `resolveCrudRecordId`) are imported when implementing new API modules. Always register new API files in the module's `api/index.ts`.
+### From C12 (2026-02-13)
+- **Implemented**: `PosCart` Entity in `packages/core/src/modules/pos/data/entities.ts` and Zod schemas in `packages/core/src/modules/pos/data/validators.ts`.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Standardize on plural table names (`pos_carts`) even if the entity class is singular (`PosCart`), while keeping POS-specific IDs singular (per convention). Use of `numeric` for all monetary fields with precision 18, scale 4.
+- **Gotchas**: Ensure all mandatory scoping columns (`organization_id`, `tenant_id`) and audit columns are included and indexed.

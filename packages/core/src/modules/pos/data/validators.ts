@@ -107,3 +107,42 @@ export const posCashMovementSchema = posCashMovementCreateSchema.merge(posCashMo
     updatedAt: z.date(),
     deletedAt: z.date().nullable(),
 })
+
+export const posCartCreateSchema = z.object({
+    ...scopedCreateFields,
+    sessionId: z.string().uuid(),
+    status: z.enum(['open', 'completed', 'abandoned']).optional(),
+    customerId: z.string().uuid().nullable().optional(),
+    salesOrderId: z.string().uuid().nullable().optional(),
+    currencyCode: z.string().length(3),
+    subtotalAmount: z.string().optional(),
+    taxAmount: z.string().optional(),
+    grandAmount: z.string().optional(),
+    amountReturn: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
+export const posCartUpdateSchema = z.object({
+    ...scopedUpdateFields,
+    sessionId: z.string().uuid().optional(),
+    status: z.enum(['open', 'completed', 'abandoned']).optional(),
+    customerId: z.string().uuid().nullable().optional(),
+    salesOrderId: z.string().uuid().nullable().optional(),
+    currencyCode: z.string().length(3).optional(),
+    subtotalAmount: z.string().optional(),
+    taxAmount: z.string().optional(),
+    grandAmount: z.string().optional(),
+    amountReturn: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
+export type PosCartCreateInput = z.infer<typeof posCartCreateSchema>
+export type PosCartUpdateInput = z.infer<typeof posCartUpdateSchema>
+
+export const posCartSchema = posCartCreateSchema.merge(posCartUpdateSchema).extend({
+    id: z.string().uuid(),
+    status: z.enum(['open', 'completed', 'abandoned']),
+    createdAt: z.date(),
+    updatedAt: z.date(),
+    deletedAt: z.date().nullable(),
+})

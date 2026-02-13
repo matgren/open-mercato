@@ -147,3 +147,57 @@ export class PosCashMovement {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+@Entity({ tableName: 'pos_carts' })
+@Index({ name: 'pos_carts_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'pos_carts_session_idx', properties: ['sessionId', 'organizationId', 'tenantId'] })
+@Index({ name: 'pos_carts_status_idx', properties: ['status', 'organizationId', 'tenantId'] })
+export class PosCart {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'session_id', type: 'uuid' })
+  sessionId!: string
+
+  @Property({ name: 'status', type: 'text' })
+  status: 'open' | 'completed' | 'abandoned' = 'open'
+
+  @Property({ name: 'customer_id', type: 'uuid', nullable: true })
+  customerId?: string | null
+
+  @Property({ name: 'sales_order_id', type: 'uuid', nullable: true })
+  salesOrderId?: string | null
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ name: 'subtotal_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  subtotalAmount: string = '0'
+
+  @Property({ name: 'tax_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  taxAmount: string = '0'
+
+  @Property({ name: 'grand_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  grandAmount: string = '0'
+
+  @Property({ name: 'amount_return', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  amountReturn: string = '0'
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
