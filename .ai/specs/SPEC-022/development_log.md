@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C20 (PosReceipt Generation Logic)
-- **Next Step**: C21 (PosReceipt API)
+- **Last Completed Step**: C23 (Register Management UI)
+- **Next Step**: C24 (Register Open/Close & Session UI)
 
 
 ### Step Tracker
@@ -54,7 +54,8 @@ Status Legend:
 | C19 | ✅ Done | — | PosReceipt Entity |
 | C20 | ✅ Done | — | PosReceipt Generation Logic |
 | C21 | ✅ Done | `24b454b0` | PosReceipt API |
-| C22 | ⬜ Next | — | Scaffolding & Module Routing |
+| C22 | ✅ Done | — | Scaffolding & Module Routing |
+| C23 | ✅ Done | — | Register Management UI |
 
 
 | ... | ... | ... | (See roadmap.md for full list) |
@@ -181,3 +182,21 @@ _Required for each step:_
 - **Review Findings**: No violations found.
 - **Patterns Discovered**: Commands MUST implement `CommandHandler` interface and be registered. `receipts.ts` was initially a standalone function which was incorrect. Using `ctx.container` is the standard way to access DI in commands.
 - **Gotchas**: `DI` interface is not globally available in commands; rely on `CommandContext`. Ensure new command files are imported in `commands/index.ts` to register them.
+
+### From C22 (2026-02-14)
+- **Implemented**: POS Frontend Scaffolding. Created `packages/core/src/modules/pos/backend/checkout.tsx` and `packages/core/src/modules/pos/components` directory.
+- **Verified**: `yarn build:packages` passed.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Used `Page` and `PageBody` components for backend pages.
+- **Gotchas**: None.
+
+### From C23 (2026-02-14)
+- **Implemented**: POS Register Management UI.
+    - `packages/core/src/modules/pos/backend/registers/page.tsx` (List)
+    - `packages/core/src/modules/pos/backend/registers/create/page.tsx` (Create)
+    - `packages/core/src/modules/pos/backend/registers/[id]/page.tsx` (Edit)
+    - `backendRoutes` export in `packages/core/src/modules/pos/index.ts`
+- **Verified**: `yarn build:packages` passed. Manual visual verification pending user action.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: `makeCrudRoute` uses `parseScopedCommandInput` which automatically injects `organizationId` and `tenantId` from context into the command input, simplifying the UI form data requirements. `backendRoutes` export is used for dynamic sidebar registration.
+- **Gotchas**: `DateCell` component was not found, used `toLocaleDateString` as fallback.

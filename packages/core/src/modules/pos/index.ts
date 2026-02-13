@@ -16,3 +16,12 @@ export { eventsConfig as events } from './events'
 export { setup } from './setup'
 
 export * as api from './api'
+
+export const backendRoutes = [
+    {
+        title: 'Registers',
+        pattern: '/backend/pos/registers',
+        group: 'Point of Sale',
+        requireFeatures: ['pos.register.view'],
+    },
+]
