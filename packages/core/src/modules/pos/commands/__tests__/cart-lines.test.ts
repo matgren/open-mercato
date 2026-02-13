@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import { PosCartLine } from '../../data/entities'
+import { PosCart, PosCartLine } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
     resolveTranslations: async () => ({
@@ -36,6 +36,7 @@ describe('pos cart line commands', () => {
         create: jest.fn().mockImplementation((entity, data) => ({ ...data, id: 'line-1' })),
         persist: jest.fn(),
         findOne: jest.fn(),
+        find: jest.fn().mockResolvedValue([]),
         remove: jest.fn(),
     }
 
@@ -57,7 +58,10 @@ describe('pos cart line commands', () => {
         const cmd = addCommand()
         expect(cmd).toBeDefined()
 
-        mockEm.findOne.mockResolvedValueOnce({ id: 'cart-1', organizationId: 'org-1', tenantId: 'tenant-1' }) // requirePosCart
+        mockEm.findOne.mockImplementation(async (entity, criteria) => {
+            if (entity === PosCart) return { id: 'cart-1', organizationId: 'org-1', tenantId: 'tenant-1', currencyCode: 'USD' }
+            return null
+        })
 
         const input = {
             organizationId: 'org-1',

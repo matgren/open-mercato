@@ -184,3 +184,42 @@ export const posCartLineSchema = posCartLineCreateSchema.merge(posCartLineUpdate
     updatedAt: z.date(),
     deletedAt: z.date().nullable(),
 })
+
+export const posPaymentCreateSchema = z.object({
+    ...scopedCreateFields,
+    sessionId: z.string().uuid(),
+    cartId: z.string().uuid(),
+    salesPaymentId: z.string().uuid().nullable().optional(),
+    method: z.enum(['cash', 'card', 'voucher', 'gift_card', 'custom']),
+    amount: z.string(),
+    currencyCode: z.string().length(3),
+    status: z.enum(['authorized', 'captured', 'voided', 'refunded']).optional(),
+    providerReference: z.string().nullable().optional(),
+    changeAmount: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
+export const posPaymentUpdateSchema = z.object({
+    ...scopedUpdateFields,
+    sessionId: z.string().uuid().optional(),
+    cartId: z.string().uuid().optional(),
+    salesPaymentId: z.string().uuid().nullable().optional(),
+    method: z.enum(['cash', 'card', 'voucher', 'gift_card', 'custom']).optional(),
+    amount: z.string().optional(),
+    currencyCode: z.string().length(3).optional(),
+    status: z.enum(['authorized', 'captured', 'voided', 'refunded']).optional(),
+    providerReference: z.string().nullable().optional(),
+    changeAmount: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
+export type PosPaymentCreateInput = z.infer<typeof posPaymentCreateSchema>
+export type PosPaymentUpdateInput = z.infer<typeof posPaymentUpdateSchema>
+
+export const posPaymentSchema = posPaymentCreateSchema.merge(posPaymentUpdateSchema).extend({
+    id: z.string().uuid(),
+    status: z.enum(['authorized', 'captured', 'voided', 'refunded']),
+    createdAt: z.date(),
+    updatedAt: z.date(),
+    deletedAt: z.date().nullable(),
+})

@@ -21,6 +21,8 @@ import {
     requirePosCart,
     requirePosCartLine,
 } from './shared'
+import { recalculateCartLine, recalculateCartTotals } from '../lib/cartCalculation'
+import { PosCart } from '../data/entities'
 
 const cartLineCrudIndexer: CrudIndexerConfig<PosCartLine> = {
     entityType: E.pos.pos_cart_line,
@@ -84,8 +86,17 @@ export const addPosCartLineCommand: CommandHandler<PosCartLineCreateInput, { id:
             updatedAt: now,
         } as RequiredEntityData<PosCartLine>)
 
+        // Recalculate line and cart totals
+        recalculateCartLine(line)
+        const cart = await requirePosCart(em, input.cartId)
+        const lines = await em.find(PosCartLine, { cartId: input.cartId, deletedAt: null })
+        // Add the new line to the list for calculation
+        lines.push(line)
+        recalculateCartTotals(cart, lines)
+
         await withAtomicFlush(em, [
-            () => { em.persist(line) }
+            () => { em.persist(line) },
+            () => { em.persist(cart) }
         ], { transaction: true, label: 'pos.cart.line.add' })
 
         const de = ctx.container.resolve('dataEngine') as DataEngine
@@ -158,6 +169,8 @@ export const updatePosCartLineCommand: CommandHandler<PosCartLineUpdateInput, { 
         ensureOrganizationScope(ctx, line.organizationId)
         ensureTenantScope(ctx, line.tenantId)
 
+        const cart = await requirePosCart(em, line.cartId)
+
         await withAtomicFlush(em, [
             () => {
                 if (input.name !== undefined) line.name = input.name
@@ -169,6 +182,14 @@ export const updatePosCartLineCommand: CommandHandler<PosCartLineUpdateInput, { 
                 if (input.metadata !== undefined) line.metadata = input.metadata
 
                 line.updatedAt = new Date()
+
+                // Recalculate line and cart totals within transaction
+                recalculateCartLine(line)
+            },
+            async () => {
+                const lines = await em.find(PosCartLine, { cartId: cart.id, deletedAt: null })
+                recalculateCartTotals(cart, lines)
+                em.persist(cart)
             }
         ], { transaction: true, label: 'pos.cart.line.update' })
 
@@ -257,11 +278,18 @@ export const deletePosCartLineCommand: CommandHandler<{ id: string }, { id: stri
         ensureOrganizationScope(ctx, line.organizationId)
         ensureTenantScope(ctx, line.tenantId)
 
+        const cart = await requirePosCart(em, line.cartId)
+
         await withAtomicFlush(em, [
             () => {
                 const now = new Date()
                 line.deletedAt = now
                 line.updatedAt = now
+            },
+            async () => {
+                const lines = await em.find(PosCartLine, { cartId: cart.id, deletedAt: null })
+                recalculateCartTotals(cart, lines)
+                em.persist(cart)
             }
         ], { transaction: true, label: 'pos.cart.line.delete' })
 

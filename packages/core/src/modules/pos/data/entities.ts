@@ -255,3 +255,59 @@ export class PosCartLine {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+@Entity({ tableName: 'pos_payments' })
+@Index({ name: 'pos_payments_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'pos_payments_session_idx', properties: ['sessionId', 'organizationId', 'tenantId'] })
+@Index({ name: 'pos_payments_cart_idx', properties: ['cartId', 'organizationId', 'tenantId'] })
+@Index({ name: 'pos_payments_method_idx', properties: ['method', 'organizationId', 'tenantId'] })
+@Index({ name: 'pos_payments_status_idx', properties: ['status', 'organizationId', 'tenantId'] })
+export class PosPayment {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'session_id', type: 'uuid' })
+  sessionId!: string
+
+  @Property({ name: 'cart_id', type: 'uuid' })
+  cartId!: string
+
+  @Property({ name: 'sales_payment_id', type: 'uuid', nullable: true })
+  salesPaymentId?: string | null
+
+  @Property({ name: 'method', type: 'text' })
+  method!: 'cash' | 'card' | 'voucher' | 'gift_card' | 'custom'
+
+  @Property({ name: 'amount', type: 'numeric', precision: 18, scale: 4 })
+  amount!: string
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ name: 'status', type: 'text' })
+  status: 'authorized' | 'captured' | 'voided' | 'refunded' = 'authorized'
+
+  @Property({ name: 'provider_reference', type: 'text', nullable: true })
+  providerReference?: string | null
+
+  @Property({ name: 'change_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  changeAmount: string = '0'
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

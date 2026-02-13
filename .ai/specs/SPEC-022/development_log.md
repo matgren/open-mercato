@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C14 (PosCartLine CRUD Commands)
-- **Next Step**: C15 (PosCart Totals Recalculation)
+- **Last Completed Step**: C16 (PosPayment Entity & Validator)
+- **Next Step**: C17 (PosPayment Commands)
 
 ### Step Tracker
 
@@ -46,7 +46,9 @@ Status Legend:
 | C12 | ✅ Done | `665e3f8b` | PosCart Entity |
 | C13 | ✅ Done | `49865ddc` | PosCartLine Entity |
 | C14 | ✅ Done | — | PosCart CRUD Commands |
-| C15 | ⬜ Next | — | PosCart Totals Recalculation |
+| C15 | ✅ Done | — | PosCart Totals Recalculation |
+| C16 | ✅ Done | — | PosPayment Entity & Validator |
+| C17 | ⬜ Next | — | PosPayment Commands |
 
 | ... | ... | ... | (See roadmap.md for full list) |
 
@@ -127,3 +129,14 @@ _Required for each step:_
 - **Review Findings**: No violations found. Standardized snapshot/undo pattern from `registers.ts`.
 - **Patterns Discovered**: Standardize on `requirePosCart` and `requirePosCartLine` helpers to reduce boilerplate and ensure consistent 404/Deleted status handling.
 - **Gotchas**: Always verify the cart exists before adding a line to prevent orphaned lines in dissociated sessions.
+### From C15 (2026-02-13)
+- **Implemented**: `PosCart` and `PosCartLine` totals recalculation logic in `packages/core/src/modules/pos/lib/cartCalculation.ts`. Integrated this service into add/update/delete cart line commands.
+- **Verified**: Unit tests for all cart line commands passing with totals validation. Full package build successful.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Standardized on `.toFixed(4)` for numeric string properties to ensure consistency with Mikro-ORM monetary types.
+- **Gotchas**: When using `em.find` for recalculating totals, remember to filter by `deletedAt: null` to avoid including soft-deleted lines.
+### From C16 (2026-02-13)
+- **Implemented**: `PosPayment` Entity in `packages/core/src/modules/pos/data/entities.ts` and Zod schemas in `packages/core/src/modules/pos/data/validators.ts`.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Followed established POS module patterns for scoping and audit fields. Numeric fields use `precision: 18, scale: 4`.
+- **Gotchas**: Root `npm run modules:prepare` script seems to be missing from `package.json` despite being referenced in `AGENTS.md`. Used `yarn generate` and `yarn build:packages` directly.
