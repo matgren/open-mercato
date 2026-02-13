@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C16 (PosPayment Entity & Validator)
-- **Next Step**: C17 (PosPayment Commands)
+- **Last Completed Step**: C18 (Cart Completion)
+- **Next Step**: C19 (Cart Completion Command)
 
 ### Step Tracker
 
@@ -47,8 +47,10 @@ Status Legend:
 | C13 | ✅ Done | `49865ddc` | PosCartLine Entity |
 | C14 | ✅ Done | — | PosCart CRUD Commands |
 | C15 | ✅ Done | — | PosCart Totals Recalculation |
-| C16 | ✅ Done | — | PosPayment Entity & Validator |
-| C17 | ⬜ Next | — | PosPayment Commands |
+| C16 | ✅ Done | `0d8cc320` | PosPayment Entity & Validator |
+| C17 | ✅ Done | `b5fb8445` | PosPayment Commands |
+| C18 | ✅ Done | — | Cart Completion |
+| C19 | ⬜ Next | — | Cart Completion Command |
 
 | ... | ... | ... | (See roadmap.md for full list) |
 
@@ -140,3 +142,16 @@ _Required for each step:_
 - **Review Findings**: No violations found.
 - **Patterns Discovered**: Followed established POS module patterns for scoping and audit fields. Numeric fields use `precision: 18, scale: 4`.
 - **Gotchas**: Root `npm run modules:prepare` script seems to be missing from `package.json` despite being referenced in `AGENTS.md`. Used `yarn generate` and `yarn build:packages` directly.
+
+### From C17 (2026-02-13)
+- **Implemented**: `pos.payment.record` command in `packages/core/src/modules/pos/commands/payments.ts`.
+- **Verified**: Unit tests passing for exact payments, overpayments, and split payments.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Standardized change calculation for cash payments and updated `PosCart.amountReturn` reactively.
+- **Gotchas**: Ensure all payment IDs (organization, tenant, session, cart) are valid UUIDs during testing as Zod validation is strict.
+### From C18 (2026-02-13)
+- **Implemented**: `mapPosCartToSalesOrder`, `mapPosCartLineToSalesOrderLine`, and `mapPosPaymentToSalesPayment` in `packages/core/src/modules/pos/lib/salesBridge.ts`.
+- **Verified**: Unit tests in `salesBridge.test.ts` passing for all mapping scenarios. Full package build successful.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Standardized mapping from POS gross prices to Sales net prices by extracting tax. Used `externalReference` to maintain traceability between POS and Sales entities without direct ORM relationships.
+- **Gotchas**: Ensure `paidTotalAmount` in Sales Order correctly reflects only the captured amount (excluding change returned) to maintain financial integrity.
