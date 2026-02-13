@@ -60,10 +60,10 @@ export const createRegisterCommand: CommandHandler<PosRegisterCreateInput, { id:
             ...input,
             createdAt: now,
             updatedAt: now,
-        })
+        } as any)
 
         await withAtomicFlush(em, [
-            () => em.persist(register)
+            () => { em.persist(register) }
         ], { transaction: true, label: 'pos.register.create' })
 
         const de = ctx.container.resolve('dataEngine') as DataEngine
@@ -103,7 +103,7 @@ export const createRegisterCommand: CommandHandler<PosRegisterCreateInput, { id:
         const register = await em.findOne(PosRegister, { id: payload.after.id })
         if (register) {
             await withAtomicFlush(em, [
-                () => em.remove(register)
+                () => { em.remove(register) }
             ], { transaction: true, label: 'pos.register.create.undo' })
 
             const de = ctx.container.resolve('dataEngine') as DataEngine
@@ -190,6 +190,7 @@ export const updateRegisterCommand: CommandHandler<PosRegisterUpdateInput, { id:
         if (register) {
             await withAtomicFlush(em, [
                 () => {
+                    if (!payload.before) return
                     Object.assign(register, payload.before)
                     register.updatedAt = new Date()
                 }

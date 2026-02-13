@@ -4,7 +4,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { CrudHttpError as HttpError } from '@open-mercato/shared/lib/crud/errors'
-import { container } from '@open-mercato/shared/lib/di/container'
+// import { container } from '@open-mercato/shared/lib/di/container' - removed incorrect import
 import { PosSession } from '../data/entities'
 import {
     posSessionCreateSchema,
@@ -126,7 +126,7 @@ export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
 // LifeCycle Actions
-export async function POST_OPEN(req: Request, ctx: any) {
+export async function POST_OPEN(req: any, ctx: any) {
     const { id } = ctx.params
     const body = await req.json()
     const payload = openPosSessionSchema.parse(body)
@@ -137,10 +137,10 @@ export async function POST_OPEN(req: Request, ctx: any) {
         ctx,
     })
 
-    return Response.json(result, { status: 200 })
+    return (Response as any).json(result, { status: 200 })
 }
 
-export async function POST_CLOSE(req: Request, ctx: any) {
+export async function POST_CLOSE(req: any, ctx: any) {
     const { id } = ctx.params
     const body = await req.json()
     const payload = closePosSessionSchema.parse(body)
@@ -151,7 +151,7 @@ export async function POST_CLOSE(req: Request, ctx: any) {
         ctx,
     })
 
-    return Response.json(result, { status: 200 })
+    return (Response as any).json(result, { status: 200 })
 }
 
 // OpenAPI

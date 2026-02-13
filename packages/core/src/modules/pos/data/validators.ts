@@ -15,7 +15,7 @@ export const posRegisterCreateSchema = z.object({
     code: z.string().min(1).max(50),
     description: z.string().nullable().optional(),
     isActive: z.boolean().optional(),
-    metadata: z.record(z.unknown()).nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export const posRegisterUpdateSchema = z.object({
@@ -24,7 +24,7 @@ export const posRegisterUpdateSchema = z.object({
     code: z.string().min(1).max(50).optional(),
     description: z.string().nullable().optional(),
     isActive: z.boolean().optional(),
-    metadata: z.record(z.unknown()).nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export type PosRegisterCreateInput = z.infer<typeof posRegisterCreateSchema>
@@ -36,7 +36,7 @@ export const posSessionCreateSchema = z.object({
     openedByUserId: z.string().uuid(),
     openingFloatAmount: z.string(), // MikroORM `numeric` type is represented as string in TS
     currencyCode: z.string().length(3), // ISO 4217 currency code (e.g., "USD")
-    metadata: z.record(z.unknown()).nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export const posSessionUpdateSchema = z.object({
@@ -50,7 +50,8 @@ export const posSessionUpdateSchema = z.object({
     expectedCashAmount: z.string().nullable().optional(),
     varianceAmount: z.string().nullable().optional(),
     currencyCode: z.string().length(3).optional(),
-    metadata: z.record(z.unknown()).nullable().optional(),
+    openingFloatAmount: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export type PosSessionCreateInput = z.infer<typeof posSessionCreateSchema>
@@ -83,6 +84,7 @@ export const posCashMovementCreateSchema = z.object({
     reason: z.string().min(1),
     reference: z.string().nullable().optional(),
     createdByUserId: z.string().uuid(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export const posCashMovementUpdateSchema = z.object({
@@ -93,6 +95,7 @@ export const posCashMovementUpdateSchema = z.object({
     reason: z.string().min(1).optional(),
     reference: z.string().nullable().optional(),
     createdByUserId: z.string().uuid().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export type PosCashMovementCreateInput = z.infer<typeof posCashMovementCreateSchema>

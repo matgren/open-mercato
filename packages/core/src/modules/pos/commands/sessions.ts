@@ -79,10 +79,10 @@ export const createPosSessionCommand: CommandHandler<PosSessionCreateInput, { id
             openedAt: now,
             createdAt: now,
             updatedAt: now,
-        })
+        } as any)
 
         await withAtomicFlush(em, [
-            () => em.persist(session)
+            () => { em.persist(session) }
         ], { transaction: true, label: 'pos.session.create' })
 
         const de = ctx.container.resolve('dataEngine') as DataEngine
@@ -122,7 +122,7 @@ export const createPosSessionCommand: CommandHandler<PosSessionCreateInput, { id
         const session = await em.findOne(PosSession, { id: payload.after.id })
         if (session) {
             await withAtomicFlush(em, [
-                () => em.remove(session)
+                () => { em.remove(session) }
             ], { transaction: true, label: 'pos.session.create.undo' })
 
             const de = ctx.container.resolve('dataEngine') as DataEngine
@@ -400,6 +400,7 @@ export const openPosSessionCommand: CommandHandler<{ id: string, pin: string }, 
         if (session) {
             await withAtomicFlush(em, [
                 () => {
+                    if (!payload.before) return
                     session.status = payload.before.status
                     session.closedAt = payload.before.closedAt
                     session.updatedAt = new Date()
@@ -513,6 +514,7 @@ export const closePosSessionCommand: CommandHandler<
         if (session) {
             await withAtomicFlush(em, [
                 () => {
+                    if (!payload.before) return
                     session.status = payload.before.status
                     session.closedByUserId = payload.before.closedByUserId
                     session.closedAt = payload.before.closedAt
