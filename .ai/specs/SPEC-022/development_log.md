@@ -53,7 +53,8 @@ Status Legend:
 | C18 | ✅ Done | `e301582c` | Cart Completion |
 | C19 | ✅ Done | — | PosReceipt Entity |
 | C20 | ✅ Done | — | PosReceipt Generation Logic |
-| C21 | ⬜ Next | — | PosReceipt API |
+| C21 | ✅ Done | — | PosReceipt API |
+| C22 | ⬜ Next | — | Scaffolding & Module Routing |
 
 
 | ... | ... | ... | (See roadmap.md for full list) |
@@ -66,6 +67,13 @@ _Required for each step:_
 - **Review Findings**: List any Critical/High/Medium issues found via code-review, or state "No violations found"
 - **Patterns Discovered**: Architectural or code patterns noted
 - **Gotchas**: Lessons for the next session
+
+### From C21 (2026-02-13)
+- **Implemented**: `PosReceipt` API routes in `packages/core/src/modules/pos/api/receipts.ts` and registered in `index.ts`. Generated database migration `Migration20260213225146.ts`.
+- **Verified**: Full package build (`yarn build:packages`) passed. API routes built using standard `makeCrudRoute` factory.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: `makeCrudRoute` handles most CRUD boilerplate. `POST` creation for receipts mapped successfully to `pos.receipt.generate` command.
+- **Gotchas**: `npm run modules:prepare` does not exist in the root. `yarn db:generate` must be run via `yarn workspace @open-mercato/app db:generate` (or `turbo`) to target the app's MikrORM configuration, which then generates migrations for the core entities.
 
 ### From C01–C06 (2026-02-10)
 - POS module uses **singular** entity names in ACL/command/event IDs (e.g., `pos.cart.manage`), unlike Sales which uses plural.
