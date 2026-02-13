@@ -1,3 +1,4 @@
 import './registers'
 import './sessions'
 import './cash-movements'
+import './cart-lines'

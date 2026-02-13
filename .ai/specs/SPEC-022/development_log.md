@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C13 (PosCartLine Entity)
-- **Next Step**: C14 (PosCart CRUD Commands)
+- **Last Completed Step**: C14 (PosCartLine CRUD Commands)
+- **Next Step**: C15 (PosCart Totals Recalculation)
 
 ### Step Tracker
 
@@ -45,7 +45,9 @@ Status Legend:
 | C11b | ✅ Done | — | PosCashMovement API Routes |
 | C12 | ✅ Done | `665e3f8b` | PosCart Entity |
 | C13 | ✅ Done | `49865ddc` | PosCartLine Entity |
-| C14 | ⬜ Next | — | PosCart CRUD Commands |
+| C14 | ✅ Done | — | PosCart CRUD Commands |
+| C15 | ⬜ Next | — | PosCart Totals Recalculation |
+
 | ... | ... | ... | (See roadmap.md for full list) |
 
 ---
@@ -118,3 +120,10 @@ _Required for each step:_
 - **Review Findings**: No violations found.
 - **Patterns Discovered**: Used `numeric(18,4)` consistently for quantities and monetary values, matching the `PosCart` and `sales` line item patterns.
 - **Gotchas**: Ensure `productId` is indexed for fast lookup during cart operations. Re-running `yarn generate` is necessary to update the generated code that tracks entity changes.
+
+### From C14 (2026-02-13)
+- **Implemented**: `pos.cart.line.add`, `pos.cart.line.update`, and `pos.cart.line.delete` commands.
+- **Verified**: Unit tests passing for all CRUD operations and undo functionality.
+- **Review Findings**: No violations found. Standardized snapshot/undo pattern from `registers.ts`.
+- **Patterns Discovered**: Standardize on `requirePosCart` and `requirePosCartLine` helpers to reduce boilerplate and ensure consistent 404/Deleted status handling.
+- **Gotchas**: Always verify the cart exists before adding a line to prevent orphaned lines in dissociated sessions.
