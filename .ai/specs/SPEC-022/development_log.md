@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C10 (PosCashMovement Entity)
-- **Next Step**: C11 (PosCashMovement Commands)
+- **Last Completed Step**: C11 (PosCashMovement Commands)
+- **Next Step**: C12 (PosCashMovement API Routes)
 
 ### Step Tracker
 
@@ -40,8 +40,8 @@ Status Legend:
 | C08 | ✅ Done | `8d4f3dc0` | PosSession Commands |
 | C09 | ✅ Done | — | PosSession API Routes |
 | A-09 | ✅ Done | — | Acceptance: Session Lifecycle |
-| C10 | ✅ Done | `12d5542` | PosCashMovement Entity |
-| C11 | ⬜ Next | — | PosCashMovement Commands |
+| C10 | ✅ Done | `db78ee98` | PosCashMovement Entity |
+| C11 | ✅ Done | `PENDING` | PosCashMovement Commands |
 | ... | ... | ... | (See roadmap.md for full list) |
 
 ---
@@ -93,10 +93,13 @@ _Required for each step:_
 ### From C10 (2026-02-13)
 - **Implemented**: `PosCashMovement` Entity in `packages/core/src/modules/pos/data/entities.ts` and Zod validator in `packages/core/src/modules/pos/data/validators.ts`.
 - **Review Findings**:
-  - Found and fixed a typo in CLI generator: `Array.fromrom` -> `Array.from`.
-  - Resolved 20+ type errors in the POS module (`api/sessions.ts`, `commands/registers.ts`, `commands/sessions.ts`) to pass quality gates.
-  - Standardized Zod `record` usage to `z.record(z.string(), z.unknown())`.
-  - Fixed `withAtomicFlush` callback return types (must be `void`).
-  - Added strict `null` checks to `undo` handlers.
-- **Patterns Discovered**: Mikro-ORM `em.create` type inference can be fragile when entities don't extend a common base class with all properties; explicit casting or `as any` may be required for complex input objects.
+  - Initially found several violations (generator typo, 20+ type errors, `any` type usage).
+  - **All violations resolved**: Typo fixed, `NextResponse` used for API types, `RequiredEntityData` for commands, and guards added to undo handlers.
+- **Patterns Discovered**: Standardize on `NextResponse` for core API handlers to ensure `Request`/`Response` globals are correctly resolved in the build environment. Use `RequiredEntityData<T>` from `@mikro-orm/core` for `em.create()` to maintain strict typing.
 - **Gotchas**: Rebuilding the CLI package is required after fixing generator source files to see changes in `yarn generate`.
+### From C11 (2026-02-13)
+- **Implemented**: `pos.cash.movement.create` command in `packages/core/src/modules/pos/commands/cash-movements.ts`.
+- **Verified**: Unit tests for creation and undo functionality passing.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Follow the `CommandHandler` archetype for POS: `ensureOrganizationScope`, `ensureTenantScope`, `withAtomicFlush` for persistence, and `emitCrudSideEffects`/`emitCrudUndoSideEffects` for events.
+- **Gotchas**: Ensure `createdByUserId` is correctly captured in snapshots to support full undo/audit fidelity. Verify that `index.ts` in the commands folder imports all newly created command files to register them in the `commandBus`.
