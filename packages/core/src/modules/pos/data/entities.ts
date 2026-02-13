@@ -311,3 +311,48 @@ export class PosPayment {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+@Entity({ tableName: 'pos_receipts' })
+@Index({ name: 'pos_receipts_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'pos_receipts_cart_idx', properties: ['cartId', 'organizationId', 'tenantId'] })
+@Index({ name: 'pos_receipts_number_idx', properties: ['receiptNumber', 'organizationId', 'tenantId'] })
+export class PosReceipt {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'cart_id', type: 'uuid' })
+  cartId!: string
+
+  @Property({ name: 'receipt_number', type: 'text' })
+  receiptNumber!: string
+
+  @Property({ name: 'issued_at', type: Date })
+  issuedAt!: Date
+
+  @Property({ name: 'delivery_method', type: 'text' })
+  deliveryMethod!: 'print' | 'email' | 'sms'
+
+  @Property({ name: 'recipient', type: 'text', nullable: true })
+  recipient?: string | null
+
+  @Property({ name: 'payload_snapshot', type: 'jsonb' })
+  payloadSnapshot!: Record<string, unknown>
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

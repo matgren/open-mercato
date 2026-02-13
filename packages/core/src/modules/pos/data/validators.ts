@@ -223,3 +223,23 @@ export const posPaymentSchema = posPaymentCreateSchema.merge(posPaymentUpdateSch
     updatedAt: z.date(),
     deletedAt: z.date().nullable(),
 })
+
+export const posReceiptCreateSchema = z.object({
+    ...scopedCreateFields,
+    cartId: z.string().uuid(),
+    receiptNumber: z.string().min(1),
+    issuedAt: z.date(),
+    deliveryMethod: z.enum(['print', 'email', 'sms']),
+    recipient: z.string().nullable().optional(),
+    payloadSnapshot: z.record(z.string(), z.unknown()),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
+export type PosReceiptCreateInput = z.infer<typeof posReceiptCreateSchema>
+
+export const posReceiptSchema = posReceiptCreateSchema.extend({
+    id: z.string().uuid(),
+    createdAt: z.date(),
+    updatedAt: z.date(),
+    deletedAt: z.date().nullable(),
+})

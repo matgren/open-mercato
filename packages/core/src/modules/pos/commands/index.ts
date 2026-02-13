@@ -3,3 +3,5 @@ import './sessions'
 import './cash-movements'
 import './cart-lines'
 import './payments'
+import './receipts'
+

@@ -15,8 +15,9 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C18 (Cart Completion)
-- **Next Step**: C19 (Cart Completion Command)
+- **Last Completed Step**: C20 (PosReceipt Generation Logic)
+- **Next Step**: C21 (PosReceipt API)
+
 
 ### Step Tracker
 
@@ -49,8 +50,11 @@ Status Legend:
 | C15 | ✅ Done | — | PosCart Totals Recalculation |
 | C16 | ✅ Done | `0d8cc320` | PosPayment Entity & Validator |
 | C17 | ✅ Done | `b5fb8445` | PosPayment Commands |
-| C18 | ✅ Done | — | Cart Completion |
-| C19 | ⬜ Next | — | Cart Completion Command |
+| C18 | ✅ Done | `e301582c` | Cart Completion |
+| C19 | ✅ Done | — | PosReceipt Entity |
+| C20 | ✅ Done | — | PosReceipt Generation Logic |
+| C21 | ⬜ Next | — | PosReceipt API |
+
 
 | ... | ... | ... | (See roadmap.md for full list) |
 
@@ -155,3 +159,17 @@ _Required for each step:_
 - **Review Findings**: No violations found.
 - **Patterns Discovered**: Standardized mapping from POS gross prices to Sales net prices by extracting tax. Used `externalReference` to maintain traceability between POS and Sales entities without direct ORM relationships.
 - **Gotchas**: Ensure `paidTotalAmount` in Sales Order correctly reflects only the captured amount (excluding change returned) to maintain financial integrity.
+
+### From C19 (2026-02-13)
+- **Implemented**: `PosReceipt` Entity in `packages/core/src/modules/pos/data/entities.ts` and Zod validator in `packages/core/src/modules/pos/data/validators.ts`.
+- **Verified**: Full package build successful (`yarn build:packages`).
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Used `jsonb` for `payloadSnapshot` to store the receipt data structure flexibly.
+- **Gotchas**: None.
+
+### From C20 (2026-02-13)
+- **Implemented**: `pos.receipt.generate` command in `packages/core/src/modules/pos/commands/receipts.ts`.
+- **Verified**: Unit tests passing for successful generation and error cases. Full package build successful.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Commands MUST implement `CommandHandler` interface and be registered. `receipts.ts` was initially a standalone function which was incorrect. Using `ctx.container` is the standard way to access DI in commands.
+- **Gotchas**: `DI` interface is not globally available in commands; rely on `CommandContext`. Ensure new command files are imported in `commands/index.ts` to register them.
