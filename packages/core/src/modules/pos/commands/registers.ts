@@ -6,6 +6,7 @@ import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@ope
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { RequiredEntityData } from '@mikro-orm/core'
 import { E } from '#generated/entities.ids.generated'
 import { PosRegister } from '../data/entities'
 import {
@@ -60,7 +61,7 @@ export const createRegisterCommand: CommandHandler<PosRegisterCreateInput, { id:
             ...input,
             createdAt: now,
             updatedAt: now,
-        } as any)
+        } as RequiredEntityData<PosRegister>)
 
         await withAtomicFlush(em, [
             () => { em.persist(register) }

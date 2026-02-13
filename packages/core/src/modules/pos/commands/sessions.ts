@@ -6,6 +6,7 @@ import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@ope
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { RequiredEntityData } from '@mikro-orm/core'
 import { E } from '#generated/entities.ids.generated'
 import { User } from '../../auth/data/entities'
 import { PosSession } from '../data/entities'
@@ -79,7 +80,7 @@ export const createPosSessionCommand: CommandHandler<PosSessionCreateInput, { id
             openedAt: now,
             createdAt: now,
             updatedAt: now,
-        } as any)
+        } as RequiredEntityData<PosSession>)
 
         await withAtomicFlush(em, [
             () => { em.persist(session) }

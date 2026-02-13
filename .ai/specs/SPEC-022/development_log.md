@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C06c (Auth Module PIN Support)
-- **Next Step**: C07
+- **Last Completed Step**: C10 (PosCashMovement Entity)
+- **Next Step**: C11 (PosCashMovement Commands)
 
 ### Step Tracker
 
@@ -40,7 +40,8 @@ Status Legend:
 | C08 | ✅ Done | `8d4f3dc0` | PosSession Commands |
 | C09 | ✅ Done | — | PosSession API Routes |
 | A-09 | ✅ Done | — | Acceptance: Session Lifecycle |
-| C10 | ⬜ Next | — | PosCashMovement Entity |
+| C10 | ✅ Done | `12d5542` | PosCashMovement Entity |
+| C11 | ⬜ Next | — | PosCashMovement Commands |
 | ... | ... | ... | (See roadmap.md for full list) |
 
 ---
@@ -89,3 +90,13 @@ _Required for each step:_
 - **Patterns Discovered**: The `CommandBus` returns a plain object `{ result: ... }`, not a `Result` class instance. Acceptance tests must mock `createRequestContainer` to support `makeCrudRoute` correctly.
 - **Gotchas**: Mocks for `em` (EntityManager) are critical for custom field decoration, even if not explicitly used in the test logic, to avoid console warnings.
 
+### From C10 (2026-02-13)
+- **Implemented**: `PosCashMovement` Entity in `packages/core/src/modules/pos/data/entities.ts` and Zod validator in `packages/core/src/modules/pos/data/validators.ts`.
+- **Review Findings**:
+  - Found and fixed a typo in CLI generator: `Array.fromrom` -> `Array.from`.
+  - Resolved 20+ type errors in the POS module (`api/sessions.ts`, `commands/registers.ts`, `commands/sessions.ts`) to pass quality gates.
+  - Standardized Zod `record` usage to `z.record(z.string(), z.unknown())`.
+  - Fixed `withAtomicFlush` callback return types (must be `void`).
+  - Added strict `null` checks to `undo` handlers.
+- **Patterns Discovered**: Mikro-ORM `em.create` type inference can be fragile when entities don't extend a common base class with all properties; explicit casting or `as any` may be required for complex input objects.
+- **Gotchas**: Rebuilding the CLI package is required after fixing generator source files to see changes in `yarn generate`.
