@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C11 (PosCashMovement Commands)
-- **Next Step**: C12 (PosCashMovement API Routes)
+- **Last Completed Step**: C11b (PosCashMovement API Routes)
+- **Next Step**: C12 (PosCart Entity)
 
 ### Step Tracker
 
@@ -41,7 +41,8 @@ Status Legend:
 | C09 | ✅ Done | — | PosSession API Routes |
 | A-09 | ✅ Done | — | Acceptance: Session Lifecycle |
 | C10 | ✅ Done | `db78ee98` | PosCashMovement Entity |
-| C11 | ✅ Done | `PENDING` | PosCashMovement Commands |
+| C11 | ✅ Done | `11a6f3cd` | PosCashMovement Commands |
+| C11b | ✅ Done | — | PosCashMovement API Routes |
 | ... | ... | ... | (See roadmap.md for full list) |
 
 ---
@@ -103,3 +104,9 @@ _Required for each step:_
 - **Review Findings**: No violations found.
 - **Patterns Discovered**: Follow the `CommandHandler` archetype for POS: `ensureOrganizationScope`, `ensureTenantScope`, `withAtomicFlush` for persistence, and `emitCrudSideEffects`/`emitCrudUndoSideEffects` for events.
 - **Gotchas**: Ensure `createdByUserId` is correctly captured in snapshots to support full undo/audit fidelity. Verify that `index.ts` in the commands folder imports all newly created command files to register them in the `commandBus`.
+### From C11b (2026-02-13)
+- **Implemented**: `PosCashMovement` API routes in `packages/core/src/modules/pos/api/cash-movements.ts`.
+- **Verified**: Acceptance tests passing for creation, listing, updating, and deletion.
+- **Review Findings**: No violations found (after fixing a missing import).
+- **Patterns Discovered**: Use `makeCrudRoute` for standard entity management. Custom actions can be added by extending the `actions` object or adding separate functions.
+- **Gotchas**: Ensure all helpers (e.g., `resolveCrudRecordId`) are imported when implementing new API modules. Always register new API files in the module's `api/index.ts`.
