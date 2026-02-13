@@ -146,3 +146,41 @@ export const posCartSchema = posCartCreateSchema.merge(posCartUpdateSchema).exte
     updatedAt: z.date(),
     deletedAt: z.date().nullable(),
 })
+
+export const posCartLineCreateSchema = z.object({
+    ...scopedCreateFields,
+    cartId: z.string().uuid(),
+    productId: z.string().uuid(),
+    productVariantId: z.string().uuid().nullable().optional(),
+    name: z.string().min(1),
+    description: z.string().nullable().optional(),
+    quantity: z.string().optional(),
+    unitPrice: z.string().optional(),
+    taxAmount: z.string().optional(),
+    totalAmount: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
+export const posCartLineUpdateSchema = z.object({
+    ...scopedUpdateFields,
+    cartId: z.string().uuid().optional(),
+    productId: z.string().uuid().optional(),
+    productVariantId: z.string().uuid().nullable().optional(),
+    name: z.string().min(1).optional(),
+    description: z.string().nullable().optional(),
+    quantity: z.string().optional(),
+    unitPrice: z.string().optional(),
+    taxAmount: z.string().optional(),
+    totalAmount: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
+export type PosCartLineCreateInput = z.infer<typeof posCartLineCreateSchema>
+export type PosCartLineUpdateInput = z.infer<typeof posCartLineUpdateSchema>
+
+export const posCartLineSchema = posCartLineCreateSchema.merge(posCartLineUpdateSchema).extend({
+    id: z.string().uuid(),
+    createdAt: z.date(),
+    updatedAt: z.date(),
+    deletedAt: z.date().nullable(),
+})

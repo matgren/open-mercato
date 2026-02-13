@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C12 (PosCart Entity)
-- **Next Step**: C13 (PosCartLine Entity)
+- **Last Completed Step**: C13 (PosCartLine Entity)
+- **Next Step**: C14 (PosCart CRUD Commands)
 
 ### Step Tracker
 
@@ -44,7 +44,8 @@ Status Legend:
 | C11 | ✅ Done | `11a6f3cd` | PosCashMovement Commands |
 | C11b | ✅ Done | — | PosCashMovement API Routes |
 | C12 | ✅ Done | `665e3f8b` | PosCart Entity |
-| C13 | ⬜ Next | — | PosCartLine Entity |
+| C13 | ✅ Done | `49865ddc` | PosCartLine Entity |
+| C14 | ⬜ Next | — | PosCart CRUD Commands |
 | ... | ... | ... | (See roadmap.md for full list) |
 
 ---
@@ -111,3 +112,9 @@ _Required for each step:_
 - **Review Findings**: No violations found.
 - **Patterns Discovered**: Standardize on plural table names (`pos_carts`) even if the entity class is singular (`PosCart`), while keeping POS-specific IDs singular (per convention). Use of `numeric` for all monetary fields with precision 18, scale 4.
 - **Gotchas**: Ensure all mandatory scoping columns (`organization_id`, `tenant_id`) and audit columns are included and indexed.
+
+### From C13 (2026-02-13)
+- **Implemented**: `PosCartLine` Entity in `packages/core/src/modules/pos/data/entities.ts` and Zod schemas in `packages/core/src/modules/pos/data/validators.ts`.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Used `numeric(18,4)` consistently for quantities and monetary values, matching the `PosCart` and `sales` line item patterns.
+- **Gotchas**: Ensure `productId` is indexed for fast lookup during cart operations. Re-running `yarn generate` is necessary to update the generated code that tracks entity changes.

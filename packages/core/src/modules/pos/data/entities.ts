@@ -201,3 +201,57 @@ export class PosCart {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+@Entity({ tableName: 'pos_cart_lines' })
+@Index({ name: 'pos_cart_lines_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'pos_cart_lines_cart_idx', properties: ['cartId', 'organizationId', 'tenantId'] })
+@Index({ name: 'pos_cart_lines_product_idx', properties: ['productId', 'organizationId', 'tenantId'] })
+export class PosCartLine {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'cart_id', type: 'uuid' })
+  cartId!: string
+
+  @Property({ name: 'product_id', type: 'uuid' })
+  productId!: string
+
+  @Property({ name: 'product_variant_id', type: 'uuid', nullable: true })
+  productVariantId?: string | null
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'quantity', type: 'numeric', precision: 18, scale: 4, default: '1' })
+  quantity: string = '1'
+
+  @Property({ name: 'unit_price', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  unitPrice: string = '0'
+
+  @Property({ name: 'tax_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  taxAmount: string = '0'
+
+  @Property({ name: 'total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  totalAmount: string = '0'
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
