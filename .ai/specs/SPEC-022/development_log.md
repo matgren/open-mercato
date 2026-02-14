@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C25 (Product Browsing Components)
-- **Next Step**: C26 (Barcode Scanning & Search)
+- **Last Completed Step**: C26 (Barcode Scanning & Search)
+- **Next Step**: C27 (Cart Line Management)
 
 
 ### Step Tracker
@@ -58,6 +58,7 @@ Status Legend:
 | C23 | ✅ Done | — | Register Management UI |
 | C24 | ✅ Done | `374aa94d` | Register Open/Close & Session UI |
 | C25 | ✅ Done | — | Product Browsing Components |
+| C26 | ✅ Done | `fddda295` | Barcode Scanning & Search |
 
 
 | ... | ... | ... | (See roadmap.md for full list) |
@@ -220,4 +221,16 @@ _Required for each step:_
 - **Review Findings**: No violations found.
 - **Patterns Discovered**: Used `virtual: true` for mocking UI components in tests where the module resolution fails in test environment but works in build. Integrated `@tanstack/react-query` for catalog data fetching.
 - **Gotchas**: `jsdom` environment is required for testing React hooks and components; added `/** @jest-environment jsdom */` to test files.
+
+### From C26 (2026-02-14)
+- **Implemented**: Barcode scanning and product search.
+    - `packages/core/src/modules/pos/lib/barcodeParser.ts` (Core logic for EAN/UPC/Weighted)
+    - `packages/core/src/modules/pos/hooks/useBarcodeScanner.ts` (Keyboard listener hook)
+    - `packages/core/src/modules/pos/components/PosProductSearch.tsx` (UI)
+    - `packages/core/src/modules/pos/hooks/usePosSession.ts` & `usePosCart.ts` (State hooks)
+- **Verified**: Unit tests for parser and scanner hook passing. Build passed. **Browser Verification Failed** due to environment build errors (`Module not found` in generated files).
+- **Review Findings**: No violations found in code logic.
+- **Patterns Discovered**: Global keyboard listener with timing heuristic works well for differentiating scanner input (rapid) from manual typing (slow).
+- **Gotchas**: `useBarcodeScanner` cleanup critical. The dev environment (`yarn dev`) is fragile regarding generated files resolution (`.js` vs `.ts`).
+
 

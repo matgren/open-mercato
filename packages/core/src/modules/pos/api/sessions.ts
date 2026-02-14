@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -137,7 +136,7 @@ export async function POST_OPEN(req: Request, ctx: any) {
         ctx,
     })
 
-    return NextResponse.json(result, { status: 200 })
+    return Response.json(result, { status: 200 })
 }
 
 export async function POST_CLOSE(req: Request, ctx: any) {
@@ -151,7 +150,7 @@ export async function POST_CLOSE(req: Request, ctx: any) {
         ctx,
     })
 
-    return NextResponse.json(result, { status: 200 })
+    return Response.json(result, { status: 200 })
 }
 
 // OpenAPI
