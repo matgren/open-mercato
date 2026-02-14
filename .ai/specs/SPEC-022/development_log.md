@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C26 (Barcode Scanning & Search)
-- **Next Step**: C27 (Cart Line Management)
+- **Last Completed Step**: C27 (Cart Line Management)
+- **Next Step**: C28 (PosPayment UI & Split Payments)
 
 
 ### Step Tracker
@@ -59,6 +59,8 @@ Status Legend:
 | C24 | ✅ Done | `374aa94d` | Register Open/Close & Session UI |
 | C25 | ✅ Done | — | Product Browsing Components |
 | C26 | ✅ Done | `fddda295` | Barcode Scanning & Search |
+| C27 | ✅ Done | — | Cart Line Management (UI) |
+| C28 | ⬜ Next | — | PosPayment UI & Split Payments |
 
 
 | ... | ... | ... | (See roadmap.md for full list) |
@@ -238,3 +240,10 @@ _Required for each step:_
 - **Review Findings**: Confirmed POS module structure is sound and matches documentation.
 - **Patterns Discovered**: Use root `@open-mercato/ui` imports for exported components and direct subpaths (e.g., `@open-mercato/ui/primitives/*`) for others.
 - **Gotchas**: The CLI generator `entity-ids` has a bug that corrupts imports with `.js` extensions when running in a TypeScript context. Manual correction is a temporary workaround.
+
+### From C27 (Cart Line Management)
+- **Implemented**: `PosCartPanel` with `CartLineItem` and `NumPadDialog`. Updated `usePosCart` hook with `updateLine` and `removeLine`.
+- **Verified**: Unit tests for `PosCartPanel` passing. Full POS test suite passing.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: `NumPadDialog` pattern for touch-friendly numeric input. Used `getAllByText` in tests to handle duplicate price occurrences (subtotal vs line total).
+- **Gotchas**: `entities.ids.generated.ts` was missing `pos` entities, causing `cash-movements` tests to fail. The root cause was that the `pos` module was not exported in `packages/core/package.json`. Added the missing exports, and `yarn generate` now correctly populates the file automatically.

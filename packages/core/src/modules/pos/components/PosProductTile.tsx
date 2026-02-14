@@ -1,3 +1,5 @@
+// This file seems fine as is, logic should be in PosProductGrid.
+// I will just verify PosProductGrid.tsx instead.
 import React from 'react'
 import { CatalogProduct } from '../../catalog/data/entities'
 import { Card, CardContent, CardFooter } from '@open-mercato/ui/primitives/card'

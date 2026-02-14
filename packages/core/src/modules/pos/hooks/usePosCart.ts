@@ -70,9 +70,47 @@ export function usePosCart(sessionId: string | null) {
         }
     })
 
+    const updateLineMutation = useMutation({
+        mutationFn: ({ lineId, quantity, price }: { lineId: string, quantity?: number, price?: number }) => {
+            if (!query.data?.id) throw new Error('No active cart')
+            return apiCall('POST', '/api/pos/cart/line/update', {
+                cartId: query.data.id,
+                lineId,
+                quantity,
+                price
+            })
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['pos', 'cart', sessionId] })
+            flash('Cart updated', 'success')
+        },
+        onError: (e: any) => {
+            flash(e.message || 'Failed to update item', 'error')
+        }
+    })
+
+    const removeLineMutation = useMutation({
+        mutationFn: (lineId: string) => {
+            if (!query.data?.id) throw new Error('No active cart')
+            return apiCall('POST', '/api/pos/cart/line/delete', {
+                cartId: query.data.id,
+                lineId
+            })
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['pos', 'cart', sessionId] })
+            flash('Item removed', 'success')
+        },
+        onError: (e: any) => {
+            flash(e.message || 'Failed to remove item', 'error')
+        }
+    })
+
     return {
         cart: query.data,
         isLoading: query.isLoading,
-        addToCart: addMutation.mutate
+        addToCart: addMutation.mutate,
+        updateLine: updateLineMutation.mutate,
+        removeLine: removeLineMutation.mutate
     }
 }

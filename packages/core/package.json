@@ -204,6 +204,14 @@
         "./src/*/*/*/*/*/*/*/*/*/*.tsx"
       ],
       "default": "./dist/*/*/*/*/*/*/*/*/*/*.js"
+    },
+    "./modules/pos": {
+      "types": "./src/modules/pos/index.ts",
+      "default": "./dist/modules/pos/index.js"
+    },
+    "./modules/pos/commands": {
+      "types": "./src/modules/pos/commands/index.ts",
+      "default": "./dist/modules/pos/commands/index.js"
     }
   },
   "dependencies": {
