@@ -19,10 +19,18 @@ Execute these steps **in order** for each `C*` plan:
    - In `development_log.md` → Learnings → `### From C{N}`, add a `**Review Findings**:` line
    - List findings by severity, or write: `No violations found`
    - This line MUST exist before committing — `ralph.sh` will reject commits without it
-7. **Quality Gate** — run before committing:
-   - `yarn build:packages` (typecheck)
-   - `yarn test` (relevant tests)
-   - For UI stories (C22+): browser verification
+7. **Quality Gate** — Rigorous Verification (MANDATORY before every commit):
+   - **Step A: Build & Typecheck**
+     - `yarn build:packages`
+   - **Step B: Unit & Integration Tests**
+     - `yarn test` (relevant tests, e.g. `yarn test --filter=@open-mercato/core -- pos`)
+   - **Step C: DB Lifecycle Verification (The "Greenfield Gate")**
+     - `yarn reinstall` (Purge DB, Fresh Migrations, Seed Example Data)
+     - This ensures migrations are atomic and seeds are healthy.
+   - **Step D: Acceptance Verification**
+     - Run the specific verification steps from the `C*.md` plan.
+     - For API stories: Use `curl` to verify responses against the freshly seeded DB.
+     - For UI stories (C22+): Browser verification.
 8. **Git Commit** — message: `feat(pos): C{N} - {description}`
 9. **Update `development_log.md`**:
    - Mark step as `✅ Done` with commit hash

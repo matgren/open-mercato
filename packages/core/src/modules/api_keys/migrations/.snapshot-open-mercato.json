@@ -16,35 +16,8 @@
           "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
         "name": {
           "name": "name",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "code": {
-          "name": "code",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -61,24 +34,106 @@
           "nullable": true,
           "mappedType": "text"
         },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "key_hash": {
+          "name": "key_hash",
+          "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "true",
-          "mappedType": "boolean"
+          "mappedType": "text"
         },
-        "metadata": {
-          "name": "metadata",
+        "key_prefix": {
+          "name": "key_prefix",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "roles_json": {
+          "name": "roles_json",
           "type": "jsonb",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": true,
           "mappedType": "json"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "session_token": {
+          "name": "session_token",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "session_user_id": {
+          "name": "session_user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "session_secret_encrypted": {
+          "name": "session_secret_encrypted",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
         },
         "created_at": {
           "name": "created_at",
@@ -96,7 +151,7 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "length": 6,
           "mappedType": "datetime"
         },
@@ -111,34 +166,21 @@
           "mappedType": "datetime"
         }
       },
-      "name": "pos_registers",
+      "name": "api_keys",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "pos_registers_org_tenant_idx",
+          "keyName": "api_keys_key_prefix_unique",
           "columnNames": [
-            "organization_id",
-            "tenant_id"
+            "key_prefix"
           ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "pos_registers_code_unique",
-          "columnNames": [
-            "organization_id",
-            "tenant_id",
-            "code"
-          ],
-          "composite": true,
+          "composite": false,
           "constraint": true,
           "primary": false,
           "unique": true
         },
         {
-          "keyName": "pos_registers_pkey",
+          "keyName": "api_keys_pkey",
           "columnNames": [
             "id"
           ],

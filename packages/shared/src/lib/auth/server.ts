@@ -1,4 +1,3 @@
-import { cookies } from 'next/headers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { verifyJwt } from './jwt'
 
@@ -162,10 +161,11 @@ function extractApiKey(req: Request): string | null {
 }
 
 export async function getAuthFromCookies(): Promise<AuthContext> {
-  const cookieStore = await cookies()
-  const token = cookieStore.get('auth_token')?.value
-  if (!token) return null
   try {
+    const { cookies } = await import('next/headers')
+    const cookieStore = await cookies()
+    const token = cookieStore.get('auth_token')?.value
+    if (!token) return null
     const payload = verifyJwt(token) as AuthContext
     if (!payload) return null
     const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value

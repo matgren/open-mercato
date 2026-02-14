@@ -39,6 +39,14 @@ Recurring patterns and mistakes to avoid. Review at session start.
 
 **Rule**: Never manually edit files in `.mercato/generated/` or `src/generated/`. If they are wrong, fix the generator source (`packages/cli/src/lib/generators/`) or the input metadata (`index.ts`, `entities.ts`). Run `yarn generate` to verify.
 
+## Isolate Next.js magic in shared packages
+
+**Context**: When adding logic to `packages/shared` that uses `next/headers`, `next/navigation`, or other Next.js-runtime-only features.
+
+**Problem**: CLI tools (which load the same packages during bootstrap) can crash if they encounter Next.js-specific imports outside of a Next.js runtime.
+
+**Rule**: ALWAYS use dynamic imports for `next/headers`, `next/navigation`, or any other Next.js-runtime-only features in `packages/shared`. This prevents CLI tools from crashing.
+
 ## Scope database migrations to specific modules
 
 **Context**: Running `yarn db:generate` without scoping resulted in a massive migration that incorrectly dropped foreign key constraints across the entire system.
