@@ -1,19 +1,50 @@
 "use client"
 
 import * as React from 'react'
-import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { Page, PageHeader, PageBody, CrudForm, LoadingMessage, ErrorMessage, FormHeader, FormFooter, FormActionButtons } from '@open-mercato/ui'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useRouter } from 'next/navigation'
-import { updateCrud, useCrudItem } from '@open-mercato/ui/backend/utils/crud'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { FormHeader, FormFooter, FormActionButtons } from '@open-mercato/ui/backend/forms'
 
 export default function PosRegisterEditPage({ params }: { params: { id: string } }) {
     const t = useT()
     const router = useRouter()
-    const { item, isLoading, error, mutate } = useCrudItem('pos/registers', params.id)
+
+    // Local hook implementation since it's missing in UI pkg
+    const [item, setItem] = React.useState<any>(null)
+    const [isLoading, setIsLoading] = React.useState(true)
+    const [error, setError] = React.useState<string | null>(null)
+
+    const mutate = React.useCallback(async () => {
+        setIsLoading(true)
+        try {
+            // Assuming generic entity get endpoint
+            const res = await apiCall<any>(`/api/pos/registers?id=${params.id}`, { method: 'GET' })
+            if (res.ok && res.result) {
+                // Result might be list or item depending on API. 
+                // If it's standard crud list, it's items[0] or we use specific GET /id
+                // Attempting generic GET /api/pos/registers/ID pattern first or ?id=
+                if (res.result.items && Array.isArray(res.result.items)) {
+                    setItem(res.result.items.find((i: any) => i.id === params.id) || res.result.items[0])
+                } else {
+                    setItem(res.result)
+                }
+            } else {
+                setError('Failed to load register')
+            }
+        } catch (e) {
+            setError(String(e))
+        } finally {
+            setIsLoading(false)
+        }
+    }, [params.id])
+
+    React.useEffect(() => {
+        mutate()
+    }, [mutate])
+
 
     const handleSubmit = async (values: any) => {
         const result = await updateCrud('pos/registers', params.id, values)

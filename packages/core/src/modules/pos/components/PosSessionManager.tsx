@@ -1,10 +1,9 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { Button, Label } from '@open-mercato/ui'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Label } from '@open-mercato/ui/primitives/label'
 import { Store, Lock } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 

@@ -1,8 +1,6 @@
 import React from 'react'
-import { ScrollArea, ScrollBar } from '@open-mercato/ui/components/scroll-area'
-import { cn } from '@open-mercato/ui/lib/utils'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { usePosCategories } from '../hooks/usePosCatalog'
-import { Skeleton } from '@open-mercato/ui/components/skeleton'
 
 interface PosCategoryTabsProps {
     selectedCategoryId?: string
@@ -23,7 +21,7 @@ export function PosCategoryTabs({
         return (
             <div className="flex gap-2 p-2 overflow-hidden">
                 {[1, 2, 3, 4].map((i) => (
-                    <Skeleton key={i} className="h-10 w-24 rounded-full" />
+                    <div key={i} className="h-10 w-24 rounded-full bg-muted animate-pulse" />
                 ))}
             </div>
         )
@@ -32,7 +30,7 @@ export function PosCategoryTabs({
     const allCategories = [{ id: 'ALL', name: 'All Products' }, ...(categories || [])]
 
     return (
-        <ScrollArea className="w-full whitespace-nowrap border-b border-border bg-background">
+        <div className="w-full whitespace-nowrap border-b border-border bg-background overflow-x-auto">
             <div className="flex w-max space-x-2 p-2">
                 {allCategories.map((category) => (
                     <button
@@ -49,7 +47,6 @@ export function PosCategoryTabs({
                     </button>
                 ))}
             </div>
-            <ScrollBar orientation="horizontal" />
-        </ScrollArea>
+        </div>
     )
 }

@@ -1,14 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { Page, PageHeader, PageBody, DataTable, RowActions, TruncatedCell, BooleanIcon, FilterBar } from '@open-mercato/ui'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { TruncatedCell } from '@open-mercato/ui/backend/TruncatedCell'
-import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
-// import { DateCell } from '@open-mercato/ui/backend/DateCell' // Pending availability check
-import { FilterBar, type FilterDef } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Plus, Edit, Trash } from 'lucide-react'
 import Link from 'next/link'

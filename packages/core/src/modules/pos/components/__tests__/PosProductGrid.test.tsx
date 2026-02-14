@@ -10,16 +10,16 @@ jest.mock('../../hooks/usePosCatalog')
 jest.mock('@open-mercato/ui/backend/EmptyState', () => ({
     EmptyState: ({ title }: any) => <div>{title}</div>
 }), { virtual: true })
-jest.mock('@open-mercato/ui/components/card', () => ({
-    Card: ({ children, onClick }: any) => <div onClick={onClick} data-testid="card">{children}</div>,
+jest.mock('@open-mercato/ui/primitives/card', () => ({
+    Card: ({ children, onClick }: any) => <div data-testid="card" onClick={onClick}>{children}</div>,
     CardContent: ({ children }: any) => <div>{children}</div>,
-    CardFooter: ({ children }: any) => <div>{children}</div>
-}), { virtual: true })
-jest.mock('@open-mercato/ui/components/badge', () => ({
-    Badge: ({ children }: any) => <span>{children}</span>
-}), { virtual: true })
-jest.mock('@open-mercato/ui/components/button', () => ({
-    Button: ({ children, onClick }: any) => <button onClick={onClick}>{children}</button>
+    CardFooter: ({ children }: any) => <div>{children}</div>,
+}))
+jest.mock('@open-mercato/ui/primitives/badge', () => ({
+    Badge: ({ children }: any) => <span data-testid="badge">{children}</span>,
+}))
+jest.mock('@open-mercato/ui', () => ({
+    Button: ({ children, onClick }: any) => <button onClick={onClick}>{children}</button>,
 }), { virtual: true })
 jest.mock('lucide-react', () => ({
     Loader2: () => <div className="animate-spin" />

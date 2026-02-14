@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button } from '@open-mercato/ui/components/button'
+import { Button } from '@open-mercato/ui'
 import { Loader2 } from 'lucide-react'
 
 interface PosLoadMoreProps {

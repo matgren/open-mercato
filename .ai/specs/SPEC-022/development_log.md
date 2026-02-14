@@ -231,6 +231,10 @@ _Required for each step:_
 - **Verified**: Unit tests for parser and scanner hook passing. Build passed. **Browser Verification Failed** due to environment build errors (`Module not found` in generated files).
 - **Review Findings**: No violations found in code logic.
 - **Patterns Discovered**: Global keyboard listener with timing heuristic works well for differentiating scanner input (rapid) from manual typing (slow).
-- **Gotchas**: `useBarcodeScanner` cleanup critical. The dev environment (`yarn dev`) is fragile regarding generated files resolution (`.js` vs `.ts`).
-
-
+### Post-C26 Build Fix (2026-02-14)
+- **Implemented**: Standardized UI imports across all POS module components and backend pages.
+- **Fixed**: Manually corrected a code generation bug in `entity-fields-registry.ts` where `.js` extensions were incorrectly appended to `.ts` imports, blocking the build.
+- **Verified**: Unit tests for `PosProductGrid` passing. Build blocking issues resolved.
+- **Review Findings**: Confirmed POS module structure is sound and matches documentation.
+- **Patterns Discovered**: Use root `@open-mercato/ui` imports for exported components and direct subpaths (e.g., `@open-mercato/ui/primitives/*`) for others.
+- **Gotchas**: The CLI generator `entity-ids` has a bug that corrupts imports with `.js` extensions when running in a TypeScript context. Manual correction is a temporary workaround.

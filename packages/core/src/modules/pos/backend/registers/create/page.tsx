@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { Page, PageHeader, PageBody, CrudForm } from '@open-mercato/ui'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useRouter } from 'next/navigation'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
