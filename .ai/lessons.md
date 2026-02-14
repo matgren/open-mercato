@@ -4,9 +4,13 @@
 
 Recurring patterns and mistakes to avoid. Review at session start.
 
-## We've got centralized helpers for extracting `UndoPayload`
+## Centralize generic infrastructure only
 
-Centralize shared command utilities like undo extraction in `packages/shared/src/lib/commands/undo.ts` and reuse `extractUndoPayload`/`UndoPayload` instead of duplicating helpers or cross-importing module code.
+**Context**: Promoting code reuse for utilities like `UndoPayload` or `withAtomicFlush`.
+
+**Problem**: Aggressive "centralization" can lead to cross-module coupling or regressions if infra-level logic (like Auth scoping) is simplified without full context.
+
+**Rule**: Centralize shared utilities in `packages/shared` only if they are strictly **isomorphic and generic**. Never centralize module-specific logic or complex security/tenant-scoping logic that depends on platform-wide context. Favor small, focused helpers over "god utilities" that try to handle too many cross-cutting concerns.
 
 ## Avoid identity-map stale snapshots in command logs
 
@@ -27,3 +31,26 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: If an update command mutates scalar fields and then performs relation-sync queries, flush the main entity changes *before* those syncs (or split into two UoWs/transactions).
 
 **Applies to**: Commands that update a core record and then call sync helpers that query/modify relations using the same `EntityManager`.
+## Trust generators over manual patches
+
+**Context**: Manual "fixes" to generated files (e.g., `entity-fields-registry.ts`) introduced syntax errors that broke the build.
+
+**Problem**: Manual patches are fragile and get overwritten anyway. 
+
+**Rule**: Never manually edit files in `.mercato/generated/` or `src/generated/`. If they are wrong, fix the generator source (`packages/cli/src/lib/generators/`) or the input metadata (`index.ts`, `entities.ts`). Run `yarn generate` to verify.
+
+## Scope database migrations to specific modules
+
+**Context**: Running `yarn db:generate` without scoping resulted in a massive migration that incorrectly dropped foreign key constraints across the entire system.
+
+**Problem**: Unscoped migrations are globally destructive if the local database is even slightly out of sync with other modules.
+
+**Rule**: Always scope migration generation to the specific module's entities using the `--filter` or specific entity paths. Review migration files for `drop constraint` or `drop table` statements that don't belong to the target module.
+
+## Maintain branch purity via base diffs
+
+**Context**: The POS branch accumulated "pollution" including regressions in `packages/shared` and unauthorized deletions.
+
+**Problem**: Long-running branches can unknowingly deviate from `origin/develop` in unrelated areas.
+
+**Rule**: Frequently run `git diff origin/develop...HEAD --name-only` to ensure only module-specific files and intended architectural changes are present. Revert any accidental changes in core packages immediately.
