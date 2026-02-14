@@ -24,4 +24,10 @@ export const backendRoutes = [
         group: 'Point of Sale',
         requireFeatures: ['pos.register.view'],
     },
+    {
+        title: 'Terminal',
+        pattern: '/backend/pos/checkout',
+        group: 'Point of Sale',
+        requireFeatures: ['pos.session.view'],
+    },
 ]
