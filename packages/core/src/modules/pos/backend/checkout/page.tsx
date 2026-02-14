@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { PosProductGrid } from '../../components/PosProductGrid'
+import { PosCategoryTabs } from '../../components/PosCategoryTabs'
 import { PosCartPanel } from '../../components/PosCartPanel'
 import { PosHeader } from '../../components/PosHeader'
 import { PosSessionManager } from '../../components/PosSessionManager'
@@ -10,8 +11,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useIdleTimer } from '../../hooks/useIdleTimer'
 
 export default function PosCheckoutPage() {
-    // Placeholder state - in real implementation this would come from api/context
     const [isSessionOpen, setIsSessionOpen] = useState(false)
+    const [selectedCategoryId, setSelectedCategoryId] = useState<string>('ALL')
+    const [searchQuery, setSearchQuery] = useState('')
 
     // Auto-lock after 15 minutes of inactivity (900000 ms)
     useIdleTimer({
@@ -19,8 +21,7 @@ export default function PosCheckoutPage() {
         onIdle: () => {
             if (isSessionOpen) {
                 console.log('User idle, locking terminal...')
-                // flast('Terminal locked due to inactivity', 'warning')
-                // In real app, this would lock the screen or logout
+                // flash('Terminal locked due to inactivity', 'warning')
             }
         }
     })
@@ -50,8 +51,30 @@ export default function PosCheckoutPage() {
             <div className="flex flex-1 overflow-hidden relative">
                 <PosSessionManager isOpen={isSessionOpen} onOpenSession={handleOpenSession}>
                     <div className="flex h-full w-full">
-                        <div className="flex-1 overflow-hidden relative border-r border-border">
-                            <PosProductGrid />
+                        <div className="flex-1 overflow-hidden relative border-r border-border flex flex-col">
+                            {/* Category Tabs */}
+                            <div className="shrink-0">
+                                <PosCategoryTabs
+                                    organizationId=""
+                                    tenantId=""
+                                    selectedCategoryId={selectedCategoryId}
+                                    onSelectCategory={setSelectedCategoryId}
+                                />
+                            </div>
+
+                            {/* Product Grid */}
+                            <div className="flex-1 overflow-hidden relative">
+                                <PosProductGrid
+                                    organizationId=""
+                                    tenantId=""
+                                    categoryId={selectedCategoryId}
+                                    search={searchQuery}
+                                    onProductClick={(product) => {
+                                        console.log('Product clicked:', product)
+                                        flash(`Clicked ${product.title}`, 'info')
+                                    }}
+                                />
+                            </div>
                         </div>
                         <div className="w-1/3 min-w-[350px] max-w-[500px] shadow-xl z-10">
                             <PosCartPanel />

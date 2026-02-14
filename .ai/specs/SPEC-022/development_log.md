@@ -15,8 +15,8 @@
 ## Current Status
 
 - **Branch**: `feat/#391-pos-module`
-- **Last Completed Step**: C23 (Register Management UI)
-- **Next Step**: C24 (Register Open/Close & Session UI)
+- **Last Completed Step**: C25 (Product Browsing Components)
+- **Next Step**: C26 (Barcode Scanning & Search)
 
 
 ### Step Tracker
@@ -56,6 +56,8 @@ Status Legend:
 | C21 | ✅ Done | `24b454b0` | PosReceipt API |
 | C22 | ✅ Done | — | Scaffolding & Module Routing |
 | C23 | ✅ Done | — | Register Management UI |
+| C24 | ✅ Done | `374aa94d` | Register Open/Close & Session UI |
+| C25 | ✅ Done | — | Product Browsing Components |
 
 
 | ... | ... | ... | (See roadmap.md for full list) |
@@ -200,3 +202,22 @@ _Required for each step:_
 - **Review Findings**: No violations found.
 - **Patterns Discovered**: `makeCrudRoute` uses `parseScopedCommandInput` which automatically injects `organizationId` and `tenantId` from context into the command input, simplifying the UI form data requirements. `backendRoutes` export is used for dynamic sidebar registration.
 - **Gotchas**: `DateCell` component was not found, used `toLocaleDateString` as fallback.
+
+### From C24 (2026-02-14)
+- **Implemented**: POS Checkout Layout Skeleton.
+    - `packages/core/src/modules/pos/backend/checkout/page.tsx` (Main Layout)
+    - `packages/core/src/modules/pos/components/PosHeader.tsx` (Header with session status)
+    - `packages/core/src/modules/pos/components/PosSessionManager.tsx` (Open/Close session UI)
+    - `packages/core/src/modules/pos/hooks/useIdleTimer.ts` (Inactivity hook)
+- **Verified**: `yarn build:packages` passed. `yarn test` passed for POS module.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Used `useClient` for interactive layout components. Implemented a dedicated `useIdleTimer` hook to handle auto-locking requirements.
+- **Gotchas**: None.
+
+### From C25 (2026-02-14)
+- **Implemented**: Visual product browsing with `PosProductGrid`, `PosCategoryTabs`, and `PosProductTile`.
+- **Verified**: Unit tests for `usePosCatalog` (React Query) and `PosProductGrid`. Build passed.
+- **Review Findings**: No violations found.
+- **Patterns Discovered**: Used `virtual: true` for mocking UI components in tests where the module resolution fails in test environment but works in build. Integrated `@tanstack/react-query` for catalog data fetching.
+- **Gotchas**: `jsdom` environment is required for testing React hooks and components; added `/** @jest-environment jsdom */` to test files.
+
