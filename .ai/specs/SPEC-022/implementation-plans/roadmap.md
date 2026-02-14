@@ -5,6 +5,7 @@ This roadmap breaks down the POS module implementation into 34 atomic commits.
 - **Security**: PIN-based switching support (C06c) + Tenant-scoped isolation.
 - **Audit**: `VersionHistoryPanel` integration (SPEC-017) for all CrudForms.
 - **i18n**: i18n-first design (SPEC-003) & standard Form System (SPEC-016).
+- **Traceability**: Every `C*.md` plan **MUST** list the specific **User Stories** (from `pos_user_stories.md`) and **Sequence Diagrams** (from `pos_sequence_diagrams.md`) it implements.
 
 ## Commit Index
 
@@ -41,14 +42,14 @@ This roadmap breaks down the POS module implementation into 34 atomic commits.
 | **A-P1** | Acceptance | [Register Management](file:///Users/maciejgren/Documents/OM/.ai/specs/SPEC-022/implementation-plans/commit-1-23-user-acceptance.md) |
 | **C23b** | Frontend | Session Management UI |
 | **A-P2** | Acceptance | [Session Lifecycle](file:///Users/maciejgren/Documents/OM/.ai/specs/SPEC-022/implementation-plans/commit-1-23b-user-acceptance.md) |
-| ****C24**** | Frontend | `PosCheckoutPage` Layout Skeleton |
-| **C25** | Frontend | `PosProductGrid` & `PosProductTile` Components |
-| **C26** | Frontend | `PosProductSearch` & Barcode Support |
-| **C27** | Frontend | `PosCartPanel` & Item Management |
+| **C24** | Frontend | `PosCheckoutPage` Layout Skeleton + **Idle Auto-Lock** |
+| **C25** | Frontend | `PosProductGrid` & **Category Tabs** Components |
+| **C26** | Frontend | `PosProductSearch`, **Weighted Barcode Parser** |
+| **C27** | Frontend | `PosCartPanel` & Item Management (Qty/Override) |
 | **A-P4** | Acceptance | [terminal Entry](file:///Users/maciejgren/Documents/OM/.ai/specs/SPEC-022/implementation-plans/commit-1-27-user-acceptance.md) |
-| **C28** | Frontend | Payment Selection UI |
+| **C28** | Frontend | Payment Selection UI + **Split Payment Logic** |
 | **C28b** | Frontend | Checkout Execution & Feedback |
 | **A-P9** | Acceptance | [Payment & Completion](file:///Users/maciejgren/Documents/OM/.ai/specs/SPEC-022/implementation-plans/commit-1-28b-user-acceptance.md) |
 | **C29** | Frontend | `PosReceiptDialog` & Session Reports |
 | **A-P13** | Acceptance | [Receipts & Reporting](file:///Users/maciejgren/Documents/OM/.ai/specs/SPEC-022/implementation-plans/commit-1-29-user-acceptance.md) |
-| **C30** | Frontend | Final Integration, Polish & End-to-End Tests |
+| **C30** | Frontend | **Full Flow Integration Tests** (Verify Sequence Diagrams) |
