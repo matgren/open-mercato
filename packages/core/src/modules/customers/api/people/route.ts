@@ -14,7 +14,6 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   applyEntityIdExclusion,
   applyEntityIdRestriction,
-  consumeAdvancedFilterState,
   findMatchingEntityIdsWithQueryEngine,
   findMatchingEntityIdsBySearchTokensAcrossSources,
   withScopedPayload,
@@ -23,7 +22,7 @@ import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCu
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -83,6 +82,7 @@ const crud = makeCrudRoute({
     softDeleteField: 'deletedAt',
   },
   enrichers: { entityId: 'customers.person' },
+  indexer: { entityType: E.customers.customer_entity },
   list: {
     schema: listSchema,
     entityId: E.customers.customer_entity,
@@ -105,15 +105,21 @@ const crud = makeCrudRoute({
       'tenant_id',
       'kind',
       'created_at',
+      'updated_at',
     ],
     sortFieldMap: {
       name: 'display_name',
+      email: 'primary_email',
+      primaryEmail: 'primary_email',
+      status: 'status',
+      lifecycleStage: 'lifecycle_stage',
+      source: 'source',
+      nextInteractionAt: 'next_interaction_at',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
     buildFilters: async (query, ctx) => {
-      const advancedQuery = { ...query }
-      const advancedFilterState = consumeAdvancedFilterState(query)
+      const advancedFilterTree = consumeAdvancedFilterState(query)
       const filters: Record<string, unknown> = { kind: { $eq: 'person' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
@@ -304,11 +310,8 @@ const crud = makeCrudRoute({
           console.warn('[customers.people.list] custom field filter resolution failed; falling back to base filters', err)
         }
       }
-      if (ctx && advancedFilterState) {
-        const advancedFilters = mergeAdvancedFilters(
-          { ...filters },
-          advancedQuery as Record<string, unknown>,
-        )
+      if (ctx && advancedFilterTree) {
+        const advancedFilters = mergeAdvancedFilterTree({ ...filters }, advancedFilterTree)
         const matchedIds = await findMatchingEntityIdsWithQueryEngine({
           ctx,
           entityId: E.customers.customer_entity,
@@ -396,7 +399,17 @@ const crud = makeCrudRoute({
         const parsed = personUpdateSchema.parse(base)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
-      response: () => ({ ok: true }),
+      // Return the freshly-bumped updatedAt so inline-edit detail pages can refresh
+      // their optimistic-lock token between sequential saves (#2055).
+      response: (arg: { result?: unknown; updatedAt?: Date | string | null }) => {
+        const raw = arg?.updatedAt
+          ?? (arg?.result as { updatedAt?: Date | string | null } | null | undefined)?.updatedAt
+          ?? null
+        return {
+          ok: true,
+          updatedAt: raw instanceof Date ? raw.toISOString() : (typeof raw === 'string' ? raw : null),
+        }
+      },
     },
     delete: {
       commandId: 'customers.people.delete',
@@ -431,37 +444,39 @@ const crud = makeCrudRoute({
         tenantId: ctx.auth?.tenantId ?? null,
         organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
       }
-      const entities = await findWithDecryption(
-        em,
-        CustomerEntity,
-        {
-          id: { $in: ids },
-          deletedAt: null,
-          kind: 'person',
-        } as FilterQuery<CustomerEntity>,
-        undefined,
-        decryptionScope,
-      )
-      const entitiesById = new Map<string, CustomerEntity>()
-      for (const entity of entities) {
-        entitiesById.set(entity.id, entity)
-      }
-
-      const where: Record<string, unknown> = {
+      const profileWhere: Record<string, unknown> = {
         entity: { $in: ids },
         tenantId: ctx.auth?.tenantId ?? null,
       }
       if (ctx.selectedOrganizationId) {
-        where.organizationId = ctx.selectedOrganizationId
+        profileWhere.organizationId = ctx.selectedOrganizationId
       }
 
-      const profiles = await findWithDecryption(
-        em,
-        CustomerPersonProfile,
-        where as FilterQuery<CustomerPersonProfile>,
-        { populate: ['entity', 'company'] },
-        decryptionScope,
-      )
+      const [entities, profiles] = await Promise.all([
+        findWithDecryption(
+          em,
+          CustomerEntity,
+          {
+            id: { $in: ids },
+            deletedAt: null,
+            kind: 'person',
+          } as FilterQuery<CustomerEntity>,
+          undefined,
+          decryptionScope,
+        ),
+        findWithDecryption(
+          em,
+          CustomerPersonProfile,
+          profileWhere as FilterQuery<CustomerPersonProfile>,
+          { populate: ['entity', 'company'] },
+          decryptionScope,
+        ),
+      ])
+
+      const entitiesById = new Map<string, CustomerEntity>()
+      for (const entity of entities) {
+        entitiesById.set(entity.id, entity)
+      }
 
       const profilesByEntityId = new Map<string, CustomerPersonProfile>()
       for (const profile of profiles) {
@@ -559,5 +574,15 @@ export const openApi = createCustomersCrudOpenApi({
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
     description: 'Deletes a person by id. Request body or query may provide the identifier.',
+    errors: [
+      {
+        status: 422,
+        description: 'Person has dependent records (e.g. linked deals); unlink or reassign before delete.',
+        schema: z.object({
+          error: z.string(),
+          code: z.literal('PERSON_HAS_DEPENDENTS'),
+        }),
+      },
+    ],
   },
 })

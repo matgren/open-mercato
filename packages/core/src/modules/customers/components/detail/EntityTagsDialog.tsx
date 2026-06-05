@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { Check, Plus, Search, SlidersHorizontal, Tag, X } from 'lucide-react'
+import { Check, Plus, Search, SearchX, SlidersHorizontal, Tag, X } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn, slugifyTagLabel } from '@open-mercato/shared/lib/utils'
@@ -853,6 +854,7 @@ export function EntityTagsDialog({
             readApiResultOrThrow<Record<string, unknown>>(
               '/api/customers/tags',
               {
+                // optimistic-lock-exempt: tag dictionary create-only
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({
@@ -891,6 +893,7 @@ export function EntityTagsDialog({
             readApiResultOrThrow<{ id: string; slug: string; label: string }>(
               '/api/customers/labels',
               {
+                // optimistic-lock-exempt: label dictionary create-only
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify(payload),
@@ -955,6 +958,7 @@ export function EntityTagsDialog({
         await runGuardedMutation(
           () =>
             apiCallOrThrow(`/api/customers/${entityType === 'person' ? 'people' : 'companies'}`, {
+              // optimistic-lock-exempt: tag/label dictionary + custom-field selection write (assignment add/remove)
               method: 'PUT',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({
@@ -983,6 +987,7 @@ export function EntityTagsDialog({
         await runGuardedMutation(
           () =>
             apiCallOrThrow('/api/customers/tags/assign', {
+              // optimistic-lock-exempt: tag assignment add/remove
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ tagId, entityId }),
@@ -995,6 +1000,7 @@ export function EntityTagsDialog({
         await runGuardedMutation(
           () =>
             apiCallOrThrow('/api/customers/tags/unassign', {
+              // optimistic-lock-exempt: tag assignment add/remove
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ tagId, entityId }),
@@ -1015,6 +1021,7 @@ export function EntityTagsDialog({
         await runGuardedMutation(
           () =>
             apiCallOrThrow('/api/customers/labels/assign', {
+              // optimistic-lock-exempt: label assignment add/remove
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(payload),
@@ -1030,6 +1037,7 @@ export function EntityTagsDialog({
         await runGuardedMutation(
           () =>
             apiCallOrThrow('/api/customers/labels/unassign', {
+              // optimistic-lock-exempt: label assignment add/remove
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(payload),
@@ -1238,13 +1246,17 @@ export function EntityTagsDialog({
                           {t('customers.personTags.loading', 'Loading...')}
                         </div>
                       ) : (
-                        <div className="rounded-lg border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
-                          {searchValue.trim().length > 0
-                            ? t('customers.personTags.emptySearchResults', 'No options match the current search.')
-                            : activeCategory.source === 'dictionary'
-                              ? t('customers.personTags.emptyDictionaryCategory', 'No options are configured for this category yet.')
-                              : t('customers.personTags.emptyCategory', 'No items have been added for this category yet.')}
-                        </div>
+                        <EmptyState
+                          size="sm"
+                          icon={<SearchX className="h-8 w-8" aria-hidden="true" />}
+                          title={
+                            searchValue.trim().length > 0
+                              ? t('customers.personTags.emptySearchResults', 'No options match the current search.')
+                              : activeCategory.source === 'dictionary'
+                                ? t('customers.personTags.emptyDictionaryCategory', 'No options are configured for this category yet.')
+                                : t('customers.personTags.emptyCategory', 'No items have been added for this category yet.')
+                          }
+                        />
                       )}
 
                       {activeCategory.supportsCreate ? (

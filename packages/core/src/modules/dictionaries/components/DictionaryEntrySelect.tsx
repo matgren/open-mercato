@@ -70,6 +70,7 @@ export type DictionarySelectLabels = {
 }
 
 export type DictionaryEntrySelectProps = {
+  id?: string
   value?: string
   onChange: (value: string | undefined) => void
   fetchOptions: () => Promise<DictionaryOption[]>
@@ -83,9 +84,18 @@ export type DictionaryEntrySelectProps = {
   disabled?: boolean
   showLabelInput?: boolean
   showManage?: boolean
+  sortOptions?: 'label_asc' | 'none'
+  /**
+   * When false, hides the read-only appearance preview (color swatch + icon + hex)
+   * rendered below the trigger for the currently-selected entry. Defaults to true to
+   * preserve existing behavior; set false where the host only wants a plain select
+   * (e.g. a create form that shouldn't surface dictionary styling).
+   */
+  showActiveAppearance?: boolean
 }
 
 export function DictionaryEntrySelect({
+  id,
   value,
   onChange,
   fetchOptions,
@@ -99,6 +109,8 @@ export function DictionaryEntrySelect({
   disabled: disabledProp = false,
   showLabelInput = true,
   showManage = true,
+  sortOptions = 'label_asc',
+  showActiveAppearance = true,
 }: DictionaryEntrySelectProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -115,7 +127,7 @@ export function DictionaryEntrySelect({
     setLoading(true)
     try {
       const items = await fetchOptions()
-      setOptions(items.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })))
+      setOptions(sortOptions === 'none' ? items : items.slice().sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })))
     } catch (err) {
       console.error('DictionaryEntrySelect.fetchOptions failed', err)
       flash(labels.errorLoad, 'error')
@@ -123,7 +135,7 @@ export function DictionaryEntrySelect({
     } finally {
       setLoading(false)
     }
-  }, [fetchOptions, labels.errorLoad])
+  }, [fetchOptions, labels.errorLoad, sortOptions])
 
   React.useEffect(() => {
     loadOptions().catch(() => {})
@@ -171,7 +183,10 @@ export function DictionaryEntrySelect({
           color: payload.color ?? null,
           icon: payload.icon ?? null,
         })
-        return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+        const nextOptions = Array.from(map.values())
+        return sortOptions === 'none'
+          ? nextOptions
+          : nextOptions.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
       })
       await loadOptions()
       onChange(payload.value)
@@ -197,6 +212,7 @@ export function DictionaryEntrySelect({
     newLabel,
     newValue,
     onChange,
+    sortOptions,
   ])
 
   const handleDialogKeyDown = React.useCallback(
@@ -247,6 +263,7 @@ export function DictionaryEntrySelect({
           disabled={disabled}
         >
           <SelectTrigger
+            id={id}
             className={selectClassName}
             title={activeOption?.label ?? undefined}
           >
@@ -345,7 +362,7 @@ export function DictionaryEntrySelect({
           ) : null}
         </div>
       </div>
-      {activeOption && (activeOption.icon || activeOption.color) ? (
+      {showActiveAppearance && activeOption && (activeOption.icon || activeOption.color) ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-2 rounded border border-dashed px-2 py-1">
             {activeOption.icon ? renderDictionaryIcon(activeOption.icon, 'h-4 w-4') : null}

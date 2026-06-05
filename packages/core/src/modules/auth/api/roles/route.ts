@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
@@ -13,6 +14,8 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { roleCrudEvents, roleCrudIndexer } from '@open-mercato/core/modules/auth/commands/roles'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { assertActorCanModifySuperAdminRoleTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -40,6 +43,7 @@ const roleListItemSchema = z.object({
   tenantId: z.string().uuid().nullable(),
   tenantIds: z.array(z.string().uuid()).optional(),
   tenantName: z.string().nullable(),
+  updatedAt: z.string().nullable().optional(),
 })
 
 const roleListResponseSchema = z.object({
@@ -87,7 +91,12 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     update: {
       commandId: 'auth.roles.update',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed,
+      mapInput: async ({ parsed, ctx }) => {
+        if (ctx.request && typeof parsed.id === 'string' && parsed.id.length) {
+          await assertCanModifySuperAdminRole(ctx.request, parsed.id)
+        }
+        return parsed
+      },
       response: () => ({ ok: true }),
     },
     delete: {
@@ -215,6 +224,7 @@ export async function GET(req: Request) {
       tenantId: tenantId ?? null,
       tenantIds: exposeTenant && tenantId ? [tenantId] : [],
       tenantName: exposeTenant ? tenantName : null,
+      updatedAt: r.updatedAt instanceof Date ? r.updatedAt.toISOString() : null,
       ...(cfByRole[idStr] || {}),
     }
   })
@@ -236,7 +246,35 @@ export async function GET(req: Request) {
 
 export const POST = crud.POST
 export const PUT = crud.PUT
-export const DELETE = crud.DELETE
+export const DELETE = async (req: Request) => {
+  const targetId = new URL(req.url).searchParams.get('id')
+  if (targetId) {
+    try {
+      await assertCanModifySuperAdminRole(req, targetId)
+    } catch (err) {
+      if (err instanceof CrudHttpError) {
+        return NextResponse.json(err.body, { status: err.status })
+      }
+      throw err
+    }
+  }
+  return crud.DELETE(req)
+}
+
+async function assertCanModifySuperAdminRole(req: Request, targetRoleId: string) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  await assertActorCanModifySuperAdminRoleTarget({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    targetRoleId,
+  })
+}
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Authentication & Accounts',

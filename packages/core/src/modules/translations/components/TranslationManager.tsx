@@ -7,7 +7,8 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Save, Plus, X } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -67,7 +68,9 @@ export function TranslationManager({
   const [selectedRecordId, setSelectedRecordId] = React.useState(propRecordId ?? '')
   const [activeLocale, setActiveLocale] = React.useState('')
   const [editedTranslations, setEditedTranslations] = React.useState<Record<string, Record<string, string>>>({})
+  const editedTranslationsRef = React.useRef<Record<string, Record<string, string>>>({})
   const [hasUserEdited, setHasUserEdited] = React.useState(false)
+  const hasUserEditedRef = React.useRef(false)
 
   const entityType = isEmbedded ? (propEntityType ?? '') : selectedEntityType
   const recordId = isEmbedded ? (propRecordId ?? '') : selectedRecordId
@@ -190,11 +193,14 @@ export function TranslationManager({
 
   React.useEffect(() => {
     const sig = translationSignature
-    if (sig === lastTranslationSignatureRef.current && hasUserEdited) return
+    if (sig === lastTranslationSignatureRef.current && hasUserEditedRef.current) return
     lastTranslationSignatureRef.current = sig
 
     if (!translationData?.translations) {
-      if (!hasUserEdited) setEditedTranslations({})
+      if (!hasUserEditedRef.current) {
+        editedTranslationsRef.current = {}
+        setEditedTranslations({})
+      }
       return
     }
 
@@ -206,8 +212,11 @@ export function TranslationManager({
         parsed[locale][key] = typeof val === 'string' ? val : ''
       }
     }
-    if (!hasUserEdited) setEditedTranslations(parsed)
-  }, [translationSignature, translationData, hasUserEdited])
+    if (!hasUserEditedRef.current) {
+      editedTranslationsRef.current = parsed
+      setEditedTranslations(parsed)
+    }
+  }, [translationSignature, translationData])
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -215,7 +224,7 @@ export function TranslationManager({
         throw new Error(t('translations.manager.errors.selectRecord', 'Select an entity and record before saving'))
       }
       const body: Record<string, Record<string, string | null>> = {}
-      for (const [locale, fields] of Object.entries(editedTranslations)) {
+      for (const [locale, fields] of Object.entries(editedTranslationsRef.current)) {
         const localeFields: Record<string, string | null> = {}
         let hasValues = false
         for (const [key, val] of Object.entries(fields)) {
@@ -230,13 +239,16 @@ export function TranslationManager({
         console.warn('[translations] Save skipped: payload is empty — no locale contains any non-empty field')
         throw new Error(t('translations.manager.errors.nothingToSave', 'Nothing to save — enter a translation first'))
       }
-      const res = await apiCall(
-        `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        },
+      const res = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(translationData?.updatedAt),
+        () => apiCall(
+          `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          },
+        ),
       )
       if (!res.ok) {
         throw new Error(t('translations.manager.errors.save', 'Failed to save translations'))
@@ -245,6 +257,7 @@ export function TranslationManager({
     },
     onSuccess: () => {
       flash(t('translations.manager.flash.saved', 'Translations saved'), 'success')
+      hasUserEditedRef.current = false
       setHasUserEdited(false)
       void refetchTranslation()
     },
@@ -255,14 +268,17 @@ export function TranslationManager({
   })
 
   const updateFieldValue = (locale: string, fieldKey: string, value: string) => {
+    hasUserEditedRef.current = true
     setHasUserEdited(true)
-    setEditedTranslations((prev) => ({
-      ...prev,
+    const next = {
+      ...editedTranslationsRef.current,
       [locale]: {
-        ...prev[locale],
+        ...editedTranslationsRef.current[locale],
         [fieldKey]: value,
       },
-    }))
+    }
+    editedTranslationsRef.current = next
+    setEditedTranslations(next)
   }
 
   const getBaseValue = (fieldKey: string): string => resolveBaseValue(baseValues, fieldKey)
@@ -279,6 +295,7 @@ export function TranslationManager({
           value={selectedRecordId}
           onChange={(next) => {
             setSelectedRecordId(next)
+            hasUserEditedRef.current = false
             setHasUserEdited(false)
           }}
           placeholder={t('translations.manager.searchRecords', 'Search records...')}
@@ -303,7 +320,7 @@ export function TranslationManager({
             data-locale={locale}
             className={`px-3 py-1.5 text-sm font-medium transition-colors ${
               isActive
-                ? 'border-b-2 border-primary text-primary'
+                ? 'border-b-2 border-accent-indigo text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             onClick={() => setActiveLocale(locale)}
@@ -473,6 +490,7 @@ export function TranslationManager({
                     onChange={(next) => {
                       setSelectedEntityType(next)
                       setSelectedRecordId('')
+                      hasUserEditedRef.current = false
                       setHasUserEdited(false)
                     }}
                     placeholder={t('translations.manager.placeholder', 'Select an entity')}
@@ -482,7 +500,7 @@ export function TranslationManager({
                   />
                 </div>
                 {entitiesError && (
-                  <p className="mt-1 text-xs text-red-600">
+                  <p className="mt-1 text-xs text-destructive">
                     {t('translations.manager.errors.loadEntities', 'Failed to load entities')}
                   </p>
                 )}
@@ -525,6 +543,7 @@ export function LocaleManager() {
 
   const mutation = useMutation({
     mutationFn: async (updatedLocales: string[]) => {
+      // optimistic-lock-exempt: single-row tenant supported-locales settings list — no per-record version / concurrent record edit
       const res = await apiCall<{ locales: string[] }>('/api/translations/locales', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },

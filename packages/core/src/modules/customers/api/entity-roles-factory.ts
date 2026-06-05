@@ -4,9 +4,10 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerEntity, CustomerEntityRole } from '../data/entities'
@@ -69,24 +70,13 @@ async function buildContext(request: Request) {
   }
 }
 
-function collectAllowedOrganizationIds(
-  scope: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['scope'],
-  auth: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['auth'],
-) {
-  const allowedOrgIds = new Set<string>()
-  if (scope?.filterIds?.length) scope.filterIds.forEach((id) => allowedOrgIds.add(id))
-  else if (auth.orgId) allowedOrgIds.add(auth.orgId)
-  return allowedOrgIds
-}
-
 function ensureRouteOrganizationAccess(
   organizationId: string,
   scope: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['scope'],
   auth: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['auth'],
   translate: Translator,
 ) {
-  const allowedOrgIds = collectAllowedOrganizationIds(scope, auth)
-  if (allowedOrgIds.size > 0 && !allowedOrgIds.has(organizationId)) {
+  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId })) {
     throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
   }
 }
@@ -318,7 +308,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
         })),
       })
     } catch (err) {
-      if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.get failed`, err)
       return NextResponse.json({ error: translate('customers.errors.failed_to_load_roles', 'Failed to load roles') }, { status: 500 })
@@ -375,7 +365,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
         { resourceKind, resourceId: entityId },
       )
     } catch (err) {
-      if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.post failed`, err)
       return NextResponse.json({ error: translate('customers.errors.failed_to_assign_role', 'Failed to assign role') }, { status: 500 })
@@ -433,7 +423,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
         { resourceKind, resourceId: entityId },
       )
     } catch (err) {
-      if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.put failed`, err)
       return NextResponse.json({ error: translate('customers.errors.failed_to_update_role', 'Failed to update role') }, { status: 500 })
@@ -489,7 +479,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
         { resourceKind, resourceId: entityId },
       )
     } catch (err) {
-      if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.delete failed`, err)
       return NextResponse.json({ error: translate('customers.errors.failed_to_delete_role', 'Failed to delete role') }, { status: 500 })

@@ -6,8 +6,10 @@ import Link from 'next/link'
 import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import {
   Select,
   SelectContent,
@@ -111,6 +113,7 @@ type DictionarySelectFieldProps = {
   allowAppearance?: boolean
   showManage?: boolean
   showLabelInput?: boolean
+  showActiveAppearance?: boolean
 }
 
 const emailValidationSchema = z.string().email()
@@ -139,6 +142,7 @@ export function DictionarySelectField({
   allowAppearance = false,
   showManage = false,
   showLabelInput = true,
+  showActiveAppearance = true,
 }: DictionarySelectFieldProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -235,6 +239,8 @@ export function DictionarySelectField({
       allowAppearance={allowAppearance}
       showManage={showManage}
       showLabelInput={showLabelInput}
+      sortOptions="none"
+      showActiveAppearance={showActiveAppearance}
     />
   )
 }
@@ -263,8 +269,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
 
     return (
       <div className="space-y-2">
-        <Input
-          type="email"
+        <EmailInput
           value={inputValue}
           onChange={(event) => {
             const nextValue = event.target.value
@@ -1422,15 +1427,20 @@ export function buildCompanyPayload(
 // Edit-mode types
 // ---------------------------------------------------------------------------
 
-export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses'> & {
+// URL/email fields are clearable on edit: blanking a previously-set value transmits null,
+// so the edit-form value types widen to `string | null` to match the edit-schema output. See #2526.
+export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses' | 'primaryEmail' | 'websiteUrl'> & {
   id: string
+  primaryEmail?: string | null
+  websiteUrl?: string | null
 }
 
-export type PersonEditFormValues = Omit<PersonFormValues, 'addresses'> & {
+export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail'> & {
   id: string
   department?: string
-  linkedInUrl?: string
-  twitterUrl?: string
+  primaryEmail?: string | null
+  linkedInUrl?: string | null
+  twitterUrl?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -1446,31 +1456,44 @@ const optionalString = () =>
     .transform((val) => (val === '' ? undefined : val))
     .optional()
 
+// Edit-mode URL/email fields map to nullable columns and must be clearable: blanking a
+// previously-set value transforms '' → null so the payload builder can transmit an explicit
+// clear (omitting the key can never remove an existing value). Create-mode schemas keep the
+// '' → undefined transform. See #2526.
+const clearableUrlField = () =>
+  z
+    .string()
+    .trim()
+    .url()
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
+const clearableEmailField = () =>
+  z
+    .string()
+    .trim()
+    .email()
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
 export const createCompanyEditSchema = () =>
   createCompanyFormSchema().extend({
     id: z.string().uuid(),
+    primaryEmail: clearableEmailField(),
+    websiteUrl: clearableUrlField(),
   })
 
 export const createPersonEditSchema = () =>
   createPersonFormSchema().extend({
     id: z.string().uuid(),
     department: optionalString(),
-    linkedInUrl: z
-      .string()
-      .trim()
-      .url()
-      .optional()
-      .or(z.literal(''))
-      .transform((val) => (val === '' ? undefined : val))
-      .optional(),
-    twitterUrl: z
-      .string()
-      .trim()
-      .url()
-      .optional()
-      .or(z.literal(''))
-      .transform((val) => (val === '' ? undefined : val))
-      .optional(),
+    primaryEmail: clearableEmailField(),
+    linkedInUrl: clearableUrlField(),
+    twitterUrl: clearableUrlField(),
   })
 
 // ---------------------------------------------------------------------------
@@ -1750,9 +1773,27 @@ export const createPersonPersonalDataGroups = (
 // Edit-mode payload builders
 // ---------------------------------------------------------------------------
 
+// On edit, optional URL/email fields that map to nullable columns must transmit an explicit
+// `null` when the user blanks a previously-set value — omitting the key can never clear it.
+// The base create-mode builders omit blanks (correct for create), so the edit builders
+// override these clearable fields here. See #2526.
+const assignClearable = (payload: Record<string, unknown>, key: string, raw: unknown): void => {
+  if (raw === null) {
+    payload[key] = null
+    return
+  }
+  if (typeof raw !== 'string') return
+  const trimmed = raw.trim()
+  payload[key] = trimmed.length ? trimmed : null
+}
+
 export function buildCompanyEditPayload(values: CompanyEditFormValues, organizationId?: string | null): Record<string, unknown> {
   const payload = buildCompanyPayload(values, organizationId)
   payload.id = values.id
+
+  assignClearable(payload, 'primaryEmail', values.primaryEmail)
+  assignClearable(payload, 'websiteUrl', values.websiteUrl)
+
   return payload
 }
 
@@ -1763,11 +1804,9 @@ export function buildPersonEditPayload(values: PersonEditFormValues, organizatio
   const department = typeof values.department === 'string' ? values.department.trim() : ''
   if (department.length) payload.department = department
 
-  const linkedInUrl = typeof values.linkedInUrl === 'string' ? values.linkedInUrl.trim() : ''
-  if (linkedInUrl.length) payload.linkedInUrl = linkedInUrl
-
-  const twitterUrl = typeof values.twitterUrl === 'string' ? values.twitterUrl.trim() : ''
-  if (twitterUrl.length) payload.twitterUrl = twitterUrl
+  assignClearable(payload, 'primaryEmail', values.primaryEmail)
+  assignClearable(payload, 'linkedInUrl', values.linkedInUrl)
+  assignClearable(payload, 'twitterUrl', values.twitterUrl)
 
   return payload
 }
@@ -1892,6 +1931,8 @@ export type PersonOverview = {
     nextInteractionIcon?: string | null
     nextInteractionColor?: string | null
     organizationId?: string | null
+    updatedAt?: string | null
+    updated_at?: string | null
   }
   profile: {
     id: string
@@ -1966,7 +2007,7 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
     industry: overview.profile?.industry ?? '',
     sizeBucket: overview.profile?.sizeBucket ?? '',
     annualRevenue: overview.profile?.annualRevenue ?? '',
-    ...overview.customFields,
+    ...extractCustomFieldEntries({ customFields: overview.customFields }),
   }
 }
 
@@ -1989,6 +2030,6 @@ export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial
     department: overview.profile?.department ?? '',
     linkedInUrl: overview.profile?.linkedInUrl ?? '',
     twitterUrl: overview.profile?.twitterUrl ?? '',
-    ...overview.customFields,
+    ...extractCustomFieldEntries({ customFields: overview.customFields }),
   }
 }

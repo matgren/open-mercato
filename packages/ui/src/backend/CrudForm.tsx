@@ -19,6 +19,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
 import { Checkbox } from '../primitives/checkbox'
 import { Input } from '../primitives/input'
+import { PasswordInput } from '../primitives/password-input'
 import { Textarea } from '../primitives/textarea'
 import {
   Select,
@@ -34,6 +35,7 @@ import { FormFooter } from './forms/FormFooter'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import {
+  Check,
   Settings,
   Layers,
   Tag,
@@ -76,13 +78,16 @@ import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } fro
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { ComboboxInput } from './inputs/ComboboxInput'
-import { format, parseISO } from 'date-fns'
-import type { Locale } from 'date-fns'
+import { format } from 'date-fns/format'
+import { parseISO } from 'date-fns/parseISO'
+import type { Locale } from 'date-fns/locale'
 import { DateTimePicker } from './inputs/DateTimePicker'
 import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
 import { withScopedApiRequestHeaders } from './utils/apiCall'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from './utils/optimisticLock'
+import { surfaceRecordConflict } from './conflicts'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
@@ -101,7 +106,7 @@ import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
-import { sanitizeHtmlRichText, sanitizeRichTextHref, sanitizeRichTextPasteContent } from './utils/richTextSanitizer'
+import { RichEditor, type RichEditorLabels } from '../primitives/rich-editor'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -115,6 +120,14 @@ const CRUDFORM_EXTENDED_EVENTS_ENABLED = parseBooleanWithDefault(
   process.env.NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED,
   true,
 )
+
+function evaluateFieldVisibility(
+  visibleWhen: { field: string; equals: string | number | boolean } | undefined,
+  values: Record<string, unknown>,
+): boolean {
+  if (!visibleWhen) return true
+  return values[visibleWhen.field] === visibleWhen.equals
+}
 
 function isFormControlTarget(target: EventTarget | null): boolean {
   if (!target || typeof (target as Element).tagName !== 'string') return false
@@ -179,6 +192,11 @@ export type CrudFieldBase = {
   placeholder?: string
   description?: React.ReactNode // inline field-level help
   required?: boolean
+  /**
+   * Simple conditional visibility for base fields.
+   * When not satisfied, the field is not rendered and is excluded from blur validation.
+   */
+  visibleWhen?: { field: string; equals: string | number | boolean }
   layout?: 'full' | 'half' | 'third'
   disabled?: boolean
   readOnly?: boolean
@@ -216,6 +234,13 @@ export type CrudBuiltinField = CrudFieldBase & {
   suggestions?: string[]
   // for combobox fields; allow custom values or restrict to suggestions only
   allowCustomValues?: boolean
+  // for combobox fields; hydrate the option map up front so a pre-selected value
+  // (typically an FK whose row is not on the first page of `loadOptions`) renders
+  // its label without requiring the user to focus the field
+  seedOptions?: CrudFieldOption[]
+  // for combobox fields; resolve a pre-selected value to its display label when it
+  // is not covered by `options`/`seedOptions`/`loadOptions` results (may be async)
+  resolveLabel?: (value: string) => string | Promise<string>
   // for text/textarea fields; HTML maxLength + (textarea only) char counter when showCount=true
   maxLength?: number
   // for textarea fields; show character counter (requires maxLength)
@@ -268,6 +293,12 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   schema?: z.ZodType<TValues>
   fields: CrudField[]
   initialValues?: Partial<TValues>
+  /**
+   * When true, suppresses the form's mount-time autofocus entirely.
+   * Hosts can keep this enabled while async record data is still loading, then
+   * flip it off once the initial values are ready to let the first field gain focus.
+   */
+  disableInitialFocus?: boolean
   submitLabel?: string
   submitIcon?: React.ComponentType<{ className?: string }>
   formId?: string
@@ -279,6 +310,30 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   onDelete?: () => Promise<void> | void
   // When true, shows Delete button whenever onDelete is provided, even without an id
   deleteVisible?: boolean
+  /**
+   * OSS opt-in optimistic locking (spec: .ai/specs/2026-05-25-oss-optimistic-locking.md).
+   *
+   * When set to a non-empty ISO-8601 string (typically `record.updatedAt`
+   * from the API response), the form auto-injects the
+   * `x-om-ext-optimistic-lock-expected-updated-at` extension header on
+   * every PUT / PATCH / DELETE issued through the underlying `onSubmit` /
+   * `onDelete` callbacks (via `withScopedApiRequestHeaders`). When the
+   * server-side guard is opted in for the resource and the timestamp is
+   * stale, the API responds with a structured 409 conflict body.
+   *
+   * Strictly additive: when the prop is absent / null / empty, the form
+   * behaves exactly as before (no header injected).
+   */
+  optimisticLockUpdatedAt?: string | null
+  /**
+   * Opt out of optimistic locking entirely for this form. When `true`, the
+   * extension header is never attached, regardless of `optimisticLockUpdatedAt`
+   * or the value auto-derived from `initialValues.updatedAt`. Use for forms
+   * whose locking is owned elsewhere (e.g. sales document sub-resources guarded
+   * at the command layer against the parent aggregate) or for entities without
+   * an `updated_at` column.
+   */
+  disableOptimisticLock?: boolean
   // Legacy field-only grid toggle. Use `groups` for advanced layout.
   twoColumn?: boolean
   title?: string
@@ -379,6 +434,62 @@ function readByDotPath(source: Record<string, unknown> | undefined, path: string
   return current
 }
 
+// Keys that would mutate the prototype chain if used as dot-path segments.
+// Guard against them so a declared field id such as `__proto__.polluted` can
+// never reach into Object.prototype (prototype-pollution hardening).
+const PROTO_POLLUTING_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
+
+function isProtoPollutingKey(key: string): boolean {
+  return PROTO_POLLUTING_KEYS.has(key)
+}
+
+function writeByDotPath(target: Record<string, unknown>, path: string, value: unknown): void {
+  const segments = path.split('.').filter(Boolean)
+  if (segments.length === 0) return
+  if (segments.some(isProtoPollutingKey)) return
+  let current: Record<string, unknown> = target
+  for (let index = 0; index < segments.length - 1; index++) {
+    const segment = segments[index]
+    const existing = current[segment]
+    const isSafeObject =
+      !!existing &&
+      typeof existing === 'object' &&
+      !Array.isArray(existing) &&
+      (Object.getPrototypeOf(existing) === Object.prototype || Object.getPrototypeOf(existing) === null)
+
+    if (!isSafeObject) {
+      const created = Object.create(null) as Record<string, unknown>
+      current[segment] = created
+      current = created
+    } else {
+      current = existing as Record<string, unknown>
+    }
+  }
+  const finalSegment = segments[segments.length - 1]
+  if (isProtoPollutingKey(finalSegment)) return
+  current[finalSegment] = value
+}
+
+// Collapse flat dot-path keys (e.g. `metadata.category`) declared as base form
+// fields into the nested object the schema expects (`{ metadata: { category } }`).
+// The flat keys are preserved alongside the nested projection so that forms whose
+// schema declares the flat keys directly keep working — CrudForm's non-strict
+// schema.safeParse retains whichever representation the schema declares and strips
+// the other. See issue #2503 ("Latent framework gap").
+function collapseDotPathFields(
+  source: Record<string, unknown>,
+  dotPathFieldIds: ReadonlySet<string>,
+): Record<string, unknown> {
+  if (!dotPathFieldIds.size) return source
+  let result: Record<string, unknown> | null = null
+  for (const fieldId of dotPathFieldIds) {
+    if (!Object.prototype.hasOwnProperty.call(source, fieldId)) continue
+    if (!result) result = { ...source }
+    writeByDotPath(result, fieldId, source[fieldId])
+  }
+  return result ?? source
+}
+
 function readInitialCustomFieldValue(
   source: Record<string, unknown> | undefined,
   key: string,
@@ -389,6 +500,22 @@ function readInitialCustomFieldValue(
     if (Object.prototype.hasOwnProperty.call(source, candidate)) {
       return source[candidate]
     }
+  }
+  return undefined
+}
+
+function readRenderedFieldValue(
+  source: Record<string, unknown>,
+  fieldId: string,
+): unknown {
+  if (Object.prototype.hasOwnProperty.call(source, fieldId)) {
+    return source[fieldId]
+  }
+  if (fieldId.startsWith('cf_')) {
+    return readInitialCustomFieldValue(source, fieldId.slice(3))
+  }
+  if (fieldId.startsWith('cf:')) {
+    return readInitialCustomFieldValue(source, fieldId.slice(3))
   }
   return undefined
 }
@@ -405,6 +532,36 @@ function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): stri
     })
     .filter((segment): segment is string => segment !== null)
   return segments.length > 0 ? segments.join('.') : null
+}
+
+function normalizeDirtySnapshotValue(value: unknown): unknown {
+  if (value === undefined || value === null || value === '') return undefined
+  if (Array.isArray(value)) {
+    const normalized = value
+      .map((entry) => normalizeDirtySnapshotValue(entry))
+      .filter((entry) => entry !== undefined)
+    return normalized.length ? normalized : undefined
+  }
+  if (typeof value !== 'object') return value
+
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null) return value
+
+  const normalized: Record<string, unknown> = {}
+  const record = value as Record<string, unknown>
+  for (const key of Object.keys(record).sort()) {
+    const nextValue = normalizeDirtySnapshotValue(record[key])
+    if (nextValue !== undefined) normalized[key] = nextValue
+  }
+  return Object.keys(normalized).length ? normalized : undefined
+}
+
+function createDirtySnapshot(source: Record<string, unknown>): string {
+  return JSON.stringify(normalizeDirtySnapshotValue(source) ?? {})
+}
+
+function createDirtyValueSnapshot(value: unknown): string {
+  return JSON.stringify(normalizeDirtySnapshotValue(value) ?? null)
 }
 
 const FIELDSET_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -528,6 +685,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   schema,
   fields,
   initialValues,
+  disableInitialFocus = false,
   submitLabel,
   submitIcon,
   formId: providedFormId,
@@ -538,6 +696,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   onSubmit,
   onDelete,
   deleteVisible,
+  optimisticLockUpdatedAt,
+  disableOptimisticLock = false,
   twoColumn = false,
   title,
   backHref,
@@ -661,6 +821,28 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   )
 
   const operation = recordId ? 'update' : 'create'
+
+  // Resolve the optimistic-lock version used to build the extension header.
+  // Explicit `optimisticLockUpdatedAt` (including `null`) always wins. When the
+  // prop is absent, auto-derive from the loaded record's `updatedAt`/`updated_at`
+  // so every edit CrudForm enforces optimistic locking by default without
+  // per-form wiring. Presence of a loaded `updatedAt` — NOT the create/update
+  // heuristic — drives this: some edit pages keep the record id outside form
+  // values (so `operation` reads as `create`), while a genuine create has no
+  // `updatedAt` in `initialValues`. Even a "duplicate"-style create that carries
+  // one is harmless — the server ignores the header on inserts (no candidate id).
+  // `disableOptimisticLock` always wins; an explicit prop (incl. `null`) wins next.
+  const resolvedOptimisticLockUpdatedAt = React.useMemo<string | null | undefined>(() => {
+    if (disableOptimisticLock) return null
+    if (optimisticLockUpdatedAt !== undefined) return optimisticLockUpdatedAt
+    const source = initialValues as Record<string, unknown> | undefined
+    const camel = source?.updatedAt
+    if (typeof camel === 'string' && camel.length > 0) return camel
+    const snake = source?.updated_at
+    if (typeof snake === 'string' && snake.length > 0) return snake
+    return null
+  }, [disableOptimisticLock, optimisticLockUpdatedAt, initialValues])
+
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
@@ -705,7 +887,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       setHasUnsavedChanges(false)
       return
     }
-    const currentSnapshot = JSON.stringify(values)
+    const currentSnapshot = createDirtySnapshot(values as Record<string, unknown>)
     const dirty = currentSnapshot !== snapshot
     isDirtyRef.current = dirty
     setHasUnsavedChanges(dirty)
@@ -752,7 +934,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const clearDirtyState = React.useCallback((snapshotSource?: Record<string, unknown>) => {
     const source = snapshotSource ?? (valuesRef.current as Record<string, unknown>)
-    dirtyBaselineSnapshotRef.current = JSON.stringify(source)
+    dirtyBaselineSnapshotRef.current = createDirtySnapshot(source)
+    dirtyBaselineValuesRef.current = { ...source }
+    userEditedFieldIdsRef.current.clear()
     isDirtyRef.current = false
     setHasUnsavedChanges(false)
   }, [])
@@ -797,7 +981,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (!target) return
       if (shouldBypassUnsavedChangesGuardRef.current?.(target)) return
       const baselineSnapshot = dirtyBaselineSnapshotRef.current
-      if (baselineSnapshot && JSON.stringify(valuesRef.current) === baselineSnapshot) {
+      if (baselineSnapshot && createDirtySnapshot(valuesRef.current as Record<string, unknown>) === baselineSnapshot) {
         isDirtyRef.current = false
         setHasUnsavedChanges(false)
         return
@@ -822,7 +1006,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         if (!target || navigationPromptBypassRef.current || submitNavigationBypassRef.current) {
           return original(data, unused, url)
         }
+        if (!isDirtyRef.current) {
+          return original(data, unused, url)
+        }
         if (shouldBypassUnsavedChangesGuardRef.current?.(target)) {
+          return original(data, unused, url)
+        }
+        const baselineSnapshot = dirtyBaselineSnapshotRef.current
+        if (baselineSnapshot && createDirtySnapshot(valuesRef.current as Record<string, unknown>) === baselineSnapshot) {
+          isDirtyRef.current = false
+          setHasUnsavedChanges(false)
           return original(data, unused, url)
         }
         if (navigationConfirmPendingRef.current) {
@@ -1042,7 +1235,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const dialogFooterClass = isInDialog
     ? 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
     : ''
-  const dialogFormPadding = isInDialog ? 'pb-4' : ''
+  // No bottom padding on the dialog form. The previous `pb-20` left an 80px gap below
+  // the sticky footer in every dialog whose content fit the viewport (the form sized to
+  // content + 80px with the footer as its last child) — visible as empty white space at
+  // the bottom of Quick deal, Add stage, Activity composer, etc. The sticky footer
+  // handles the overflow case on its own: when content scrolls, the footer stays pinned
+  // to the dialog's bottom and the user can scroll fields above it.
+  const dialogFormPadding = ''
 
   const buildCustomFieldsManageHref = React.useCallback(
     (targetEntityId: string | null) => {
@@ -1123,8 +1322,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         }
       }
 
-      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
-        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+      const optimisticLockHeader = buildOptimisticLockHeader(resolvedOptimisticLockUpdatedAt)
+      const mergedDeleteHeaders = {
+        ...(injectionRequestHeaders ?? {}),
+        ...optimisticLockHeader,
+      }
+      if (Object.keys(mergedDeleteHeaders).length > 0) {
+        await withScopedApiRequestHeaders(mergedDeleteHeaders, async () => {
           await onDelete()
         })
       } else {
@@ -1168,8 +1372,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       } catch {
         // ignore event dispatch failures
       }
-      const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
-      try { flash(message, 'error') } catch {}
+      const optimisticLockConflict = extractOptimisticLockConflict(err)
+      if (optimisticLockConflict) {
+        // Surface on the unified, persistent conflict bar instead of a toast.
+        try { surfaceRecordConflict(err, t) } catch {}
+      } else {
+        const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
+        try { flash(message, 'error') } catch {}
+      }
     } finally {
       deletingRef.current = false
       setPending(false)
@@ -1505,6 +1715,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }, [values])
 
+  const hiddenBaseFieldIds = React.useMemo(() => {
+    const hidden = new Set<string>()
+    const recordValues = values as Record<string, unknown>
+    for (const field of fields) {
+      if (!evaluateFieldVisibility(field.visibleWhen, recordValues)) {
+        hidden.add(field.id)
+      }
+    }
+    return hidden
+  }, [fields, values])
+
   const hiddenInjectedFieldIds = React.useMemo(() => {
     const hidden = new Set<string>()
     for (const definition of injectedFieldDefinitions) {
@@ -1563,6 +1784,25 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return new globalThis.Map(allFields.map((f) => [f.id, f]))
   }, [allFields])
 
+  // Declared base fields whose id is a dot-path (e.g. `metadata.category`).
+  // Injected and custom (cf) fields already get dot-path/cf-path hydration and
+  // are excluded here so their dedicated handling is preserved. CrudForm hydrates
+  // these flat keys from nested initial values on load and projects them back into
+  // nested objects before schema.safeParse on submit. See issue #2503.
+  const dotPathBaseFieldIds = React.useMemo(() => {
+    const ids = new Set<string>()
+    const cfFieldIds = new Set(cfFields.map((field) => field.id))
+    for (const field of allFields) {
+      const fieldId = field.id
+      if (!fieldId.includes('.')) continue
+      if (injectedFieldIdSet.has(fieldId)) continue
+      if (fieldId.startsWith('cf_') || fieldId.startsWith('cf:')) continue
+      if (cfFieldIds.has(fieldId)) continue
+      ids.add(fieldId)
+    }
+    return ids
+  }, [allFields, injectedFieldIdSet, cfFields])
+
   const validateFieldOnBlur = React.useCallback(async (
     fieldId: string,
     sourceValues?: CrudFormValues<TValues>,
@@ -1570,7 +1810,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (formReadOnly) return
     const field = fieldById.get(fieldId)
     if (!field || field.disabled) return
-    if (hiddenInjectedFieldIds.has(fieldId)) return
+    if (hiddenBaseFieldIds.has(fieldId) || hiddenInjectedFieldIds.has(fieldId)) return
 
     const nextValues = sourceValues ?? valuesRef.current
     const nextFieldErrors: Record<string, string> = {}
@@ -1635,7 +1875,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       for (const injectedId of injectedFieldIdSet) {
         delete coreValues[injectedId]
       }
-      const result = schema.safeParse(coreValues)
+      const result = schema.safeParse(collapseDotPathFields(coreValues, dotPathBaseFieldIds))
       if (!result.success) {
         const schemaFieldErrors: Record<string, string> = {}
         result.error.issues.forEach((issue) => {
@@ -1675,8 +1915,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [
     cfDefinitions,
     customEntity,
+    dotPathBaseFieldIds,
     fieldById,
     formReadOnly,
+    hiddenBaseFieldIds,
     hiddenInjectedFieldIds,
     injectedFieldIdSet,
     mapDefsForValidation,
@@ -1882,7 +2124,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
 
-    if (isLoading || isLoadingCustomFields || formReadOnly) {
+    if (disableInitialFocus || isLoading || isLoadingCustomFields || formReadOnly) {
       lastFocusedFieldRef.current = null
       return
     }
@@ -1929,7 +2171,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         window.clearTimeout(frame as number)
       }
     }
-  }, [firstFieldId, formId, formReadOnly, isLoading, isLoadingCustomFields])
+  }, [disableInitialFocus, firstFieldId, formId, formReadOnly, isLoading, isLoadingCustomFields])
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
@@ -1973,14 +2215,46 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }, [errors, formId])
 
+  const updateEditedFieldMarker = React.useCallback((
+    id: string,
+    nextValue: unknown,
+    baselineSource: Record<string, unknown> | undefined = dirtyBaselineValuesRef.current,
+  ) => {
+    if (
+      baselineSource &&
+      createDirtyValueSnapshot(baselineSource[id]) === createDirtyValueSnapshot(nextValue)
+    ) {
+      userEditedFieldIdsRef.current.delete(id)
+      return
+    }
+    userEditedFieldIdsRef.current.add(id)
+  }, [])
+
   const setValue = React.useCallback((id: string, nextValue: unknown) => {
     let nextData: CrudFormValues<TValues> | null = null
+    let nextDirty: boolean | null = null
+    const currentValue = (valuesRef.current as Record<string, unknown>)[id]
+    if (!Object.is(currentValue, nextValue)) {
+      updateEditedFieldMarker(id, nextValue)
+    }
     setValues((prev) => {
       if (Object.is(prev[id], nextValue)) return prev
+      const baselineSource = dirtyBaselineValuesRef.current ?? (prev as Record<string, unknown>)
+      updateEditedFieldMarker(id, nextValue, baselineSource)
       nextData = { ...prev, [id]: nextValue } as CrudFormValues<TValues>
       valuesRef.current = nextData
+      if (!(embedded && !trackDirtyWhenEmbedded)) {
+        const baseline = dirtyBaselineSnapshotRef.current ?? createDirtySnapshot(prev as Record<string, unknown>)
+        dirtyBaselineSnapshotRef.current = baseline
+        dirtyBaselineValuesRef.current = baselineSource
+        nextDirty = createDirtySnapshot(nextData as Record<string, unknown>) !== baseline
+      }
       return nextData
     })
+    if (nextDirty !== null) {
+      isDirtyRef.current = nextDirty
+      setHasUnsavedChanges(nextDirty)
+    }
     const clearedMessages: string[] = []
     setErrors((prev) => {
       if (!Object.keys(prev).length) return prev
@@ -2045,7 +2319,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }).catch((err) => {
       console.error('[CrudForm] Error in onFieldChange:', err)
     })
-  }, [extendedInjectionEventsEnabled, flash, t, translateValidationMessage, triggerInjectionEvent])
+  }, [embedded, extendedInjectionEventsEnabled, flash, t, trackDirtyWhenEmbedded, translateValidationMessage, triggerInjectionEvent, updateEditedFieldMarker])
 
   const onBlurRequest = React.useCallback((fieldId: string) => {
     void validateFieldOnBlur(fieldId)
@@ -2073,19 +2347,40 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const appliedInitialValuesSnapshotRef = React.useRef<string | undefined>(undefined)
   const dirtyBaselineSnapshotRef = React.useRef<string | undefined>(undefined)
+  const dirtyBaselineValuesRef = React.useRef<Record<string, unknown> | undefined>(undefined)
+  const userEditedFieldIdsRef = React.useRef<Set<string>>(new Set())
   React.useLayoutEffect(() => {
     if (!initialValues) return
     const snapshot = JSON.stringify({
       initialValues,
       injectedFieldIds: injectedFieldDefinitions.map((definition) => definition.id),
       customFieldMappings: cfDefinitions.map((definition) => definition.key),
+      dotPathBaseFieldIds: Array.from(dotPathBaseFieldIds),
     })
     if (appliedInitialValuesSnapshotRef.current === snapshot) return
     appliedInitialValuesSnapshotRef.current = snapshot
     const initialRecord = initialValues as Record<string, unknown>
     let mergedValues: CrudFormValues<TValues> | null = null
+    // Whether the user already has unsaved edits relative to the load-time baseline,
+    // computed from `prev` (React's latest committed values) — NOT from isDirtyRef or
+    // valuesRef, which are both updated in post-render effects and therefore still
+    // hold stale values when this layout effect runs in the SAME render that async
+    // custom-field / injected-field definitions arrive. That lag was the residual
+    // race that let the baseline absorb an in-progress edit under load.
+    let hadUnsavedEdits = false
     setValues((prev) => {
-      const merged = { ...prev, ...initialValues } as CrudFormValues<TValues>
+      const priorBaseline = dirtyBaselineSnapshotRef.current
+      const editedFieldIds = userEditedFieldIdsRef.current
+      hadUnsavedEdits =
+        editedFieldIds.size > 0 ||
+        priorBaseline !== undefined &&
+        createDirtySnapshot(prev as Record<string, unknown>) !== priorBaseline
+      const merged = { ...prev } as CrudFormValues<TValues>
+      const mergedRecord = merged as Record<string, unknown>
+      for (const [key, value] of Object.entries(initialValues as Record<string, unknown>)) {
+        if (editedFieldIds.has(key)) continue
+        mergedRecord[key] = value
+      }
       for (const definition of injectedFieldDefinitions) {
         if (merged[definition.id] !== undefined) continue
         const extracted = readByDotPath(initialRecord, definition.id)
@@ -2101,11 +2396,29 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           ;(merged as Record<string, unknown>)[targetId] = extracted
         }
       }
+      for (const fieldId of dotPathBaseFieldIds) {
+        if (merged[fieldId] !== undefined) continue
+        const extracted = readByDotPath(initialRecord, fieldId)
+        if (extracted !== undefined) {
+          ;(merged as Record<string, unknown>)[fieldId] = extracted
+        }
+      }
       mergedValues = merged
       return mergedValues
     })
-    if (mergedValues) {
-      dirtyBaselineSnapshotRef.current = JSON.stringify(mergedValues)
+    if (mergedValues && !hadUnsavedEdits) {
+      // Do not absorb an in-progress edit into the pristine baseline. This effect
+      // re-runs whenever the snapshot changes — which includes custom-field
+      // definitions and injected fields loading ASYNCHRONOUSLY after mount. If the
+      // user has already started editing by the time they arrive, recomputing the
+      // baseline from the current (merged) values would set the baseline equal to
+      // the edited values, silently clearing dirty (header Save disables, the edit
+      // looks pristine) and discarding the unsaved change. Re-establish the baseline
+      // only when there are no pending edits; while dirty, keep the load-time
+      // baseline so the edit stays dirty until save/discard. Root cause of the flaky
+      // optimistic-lock stale-edit conflicts (#2055 / TC-LOCK-OSS-015 / TC-LOCK-OSS-029).
+      dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
+      dirtyBaselineValuesRef.current = { ...(mergedValues as Record<string, unknown>) }
     }
     if (!extendedInjectionEventsEnabled || !mergedValues) return
     let cancelled = false
@@ -2118,7 +2431,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         )
         const transformed = result.data
         if (cancelled || !transformed) return
-        dirtyBaselineSnapshotRef.current = JSON.stringify(transformed as Record<string, unknown>)
+        // As above: never re-apply transformed display data over an in-progress
+        // edit — it would overwrite the user's unsaved changes and reset dirty.
+        if (isDirtyRef.current) return
+        dirtyBaselineSnapshotRef.current = createDirtySnapshot(transformed as Record<string, unknown>)
+        dirtyBaselineValuesRef.current = { ...(transformed as Record<string, unknown>) }
         setValues(transformed as CrudFormValues<TValues>)
       } catch (err) {
         console.error('[CrudForm] Error in transformDisplayData:', err)
@@ -2131,6 +2448,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [
     cfDefinitions,
     customEntity,
+    dotPathBaseFieldIds,
     extendedInjectionEventsEnabled,
     initialValues,
     injectedFieldDefinitions,
@@ -2187,7 +2505,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
     // Update the dirty baseline so the form doesn't appear dirty from defaults
     if (mergedValues) {
-      dirtyBaselineSnapshotRef.current = JSON.stringify(mergedValues)
+      dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
+      dirtyBaselineValuesRef.current = { ...(mergedValues as Record<string, unknown>) }
     }
   }, [isLoading, initialValuesHasId, cfDefinitions, customEntity])
 
@@ -2251,7 +2570,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const field of allFields) {
       if (!field.required) continue
       if (field.disabled) continue
-      if (hiddenInjectedFieldIds.has(field.id)) continue
+      if (hiddenBaseFieldIds.has(field.id) || hiddenInjectedFieldIds.has(field.id)) continue
       const v = values[field.id]
       const isArray = Array.isArray(v)
       const isString = typeof v === 'string'
@@ -2328,7 +2647,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
     let parsedValues: TValues
     if (schema) {
-      const res = schema.safeParse(coreValues)
+      const res = schema.safeParse(collapseDotPathFields(coreValues, dotPathBaseFieldIds))
       if (!res.success) {
         const fieldErrors: Record<string, string> = {}
         res.error.issues.forEach((issue) => {
@@ -2358,7 +2677,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           for (const injectedId of injectedFieldIdSet) {
             delete projectedCoreValues[injectedId]
           }
-          coreSubmitValues = schema ? schema.parse(projectedCoreValues) : (projectedCoreValues as TValues)
+          coreSubmitValues = schema
+            ? schema.parse(collapseDotPathFields(projectedCoreValues, dotPathBaseFieldIds))
+            : (projectedCoreValues as TValues)
           if (result.applyToForm) {
             setValues(result.data as CrudFormValues<TValues>)
           }
@@ -2446,8 +2767,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     
     try {
       submitNavigationBypassRef.current = true
-      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
-        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+      const optimisticLockHeader = buildOptimisticLockHeader(resolvedOptimisticLockUpdatedAt)
+      const mergedSubmitHeaders = {
+        ...(injectionRequestHeaders ?? {}),
+        ...optimisticLockHeader,
+      }
+      if (Object.keys(mergedSubmitHeaders).length > 0) {
+        await withScopedApiRequestHeaders(mergedSubmitHeaders, async () => {
           await onSubmit?.(coreSubmitValues, submitContext)
         })
       } else {
@@ -2505,7 +2831,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         }
       }
 
-      let displayMessage = typeof helperMessage === 'string' && helperMessage.trim() ? helperMessage.trim() : ''
+      const optimisticLockConflict = extractOptimisticLockConflict(err)
+      let displayMessage = optimisticLockConflict
+        ? t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
+        : typeof helperMessage === 'string' && helperMessage.trim() ? helperMessage.trim() : ''
       if (hasFieldErrors) {
         const lowered = displayMessage.toLowerCase()
         const highlightedLower = highlightedMessage.toLowerCase()
@@ -2520,7 +2849,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         displayMessage = hasFieldErrors ? highlightedMessage : saveErrorMessage
       }
       displayMessage = parseServerMessage(displayMessage)
-      if (!hasFieldErrors) {
+      if (optimisticLockConflict) {
+        // Primary surface for the conflict is the persistent, error-styled
+        // RecordConflictBanner (unified across all forms). Keep the inline
+        // form error too, but suppress the redundant transient toast.
+        try { surfaceRecordConflict(err, t) } catch {}
+      } else if (!hasFieldErrors) {
         flash(displayMessage, 'error')
       }
       setFormError(displayMessage)
@@ -2662,14 +2996,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             <FieldControl
               key={f.id}
               field={f}
-              value={values[f.id]}
+              value={readRenderedFieldValue(values as Record<string, unknown>, f.id)}
               error={errors[f.id]}
               options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
               setValue={setValue}
               onBlurRequest={onBlurRequest}
               values={values}
               loadFieldOptions={loadFieldOptions}
-              autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
+                autoFocus={!disableInitialFocus && !formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
               onSubmitRequest={requestSubmit}
               wrapperClassName={wrapperClassName}
               entityIdForField={primaryEntityId ?? undefined}
@@ -3217,6 +3551,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             ) : null}
             <div className={grid}>
               {allFields.map((f) => {
+                if (hiddenBaseFieldIds.has(f.id) || hiddenInjectedFieldIds.has(f.id)) return null
                 const layout = f.layout ?? 'full'
                 const wrapperClassName = usesResponsiveLayout ? resolveLayoutClass(layout) : undefined
                 return (
@@ -3230,7 +3565,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     onBlurRequest={onBlurRequest}
                     values={values}
                     loadFieldOptions={loadFieldOptions}
-                    autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
+                    autoFocus={!disableInitialFocus && !formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
                     onSubmitRequest={requestSubmit}
                     wrapperClassName={wrapperClassName}
                     entityIdForField={primaryEntityId ?? undefined}
@@ -3387,6 +3722,22 @@ function TextInput({
     commitIfChanged()
   }, [commitIfChanged])
 
+  if (inputType === 'password') {
+    return (
+      <PasswordInput
+        placeholder={placeholder}
+        value={local}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        spellCheck={false}
+        autoFocus={autoFocus}
+        data-crud-focus-target=""
+        disabled={disabled}
+      />
+    )
+  }
   return (
     <>
       <Input
@@ -3613,106 +3964,33 @@ const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange
   )
 }, (prev, next) => prev.value === next.value)
 
-// HTML Rich Text editor (contentEditable) with shortcuts; returns HTML string
-type HtmlRTProps = { value?: string; onChange: (html: string) => void }
-const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', onChange }: HtmlRTProps) {
+// HTML Rich Text editor wrapper for the CrudForm builtin `editor: 'html'`.
+// Maps the existing `ui.forms.richtext.*` i18n keys onto the `RichEditor`
+// `labels` contract and pins the `standard` toolbar variant — heading
+// dropdown + B/I/U + lists + link, matching the legacy behaviour plus
+// the Figma `164611:20259` heading selector.
+type HtmlRichEditorFieldProps = { value?: string; onChange: (html: string) => void }
+const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = '', onChange }: HtmlRichEditorFieldProps) {
   const t = useT()
-  const boldLabel = t('ui.forms.richtext.bold')
-  const italicLabel = t('ui.forms.richtext.italic')
-  const underlineLabel = t('ui.forms.richtext.underline')
-  const listLabel = t('ui.forms.richtext.list')
-  const heading3Label = t('ui.forms.richtext.heading3')
-  const linkLabel = t('ui.forms.richtext.link')
-  const linkUrlPrompt = t('ui.forms.richtext.linkUrlPrompt')
-  const ref = React.useRef<HTMLDivElement | null>(null)
-  const applyingExternal = React.useRef(false)
-  const typingRef = React.useRef(false)
-
-  React.useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const current = el.innerHTML
-    const sanitizedValue = sanitizeHtmlRichText(value)
-    if (!typingRef.current && current !== sanitizedValue) {
-      applyingExternal.current = true
-      el.innerHTML = sanitizedValue
-      requestAnimationFrame(() => { applyingExternal.current = false })
-    }
-  }, [value])
-
-  const exec = (cmd: string, arg?: string) => {
-    const el = ref.current
-    if (!el) return
-    el.focus()
-    try {
-      document.execCommand(cmd, false, arg)
-    } catch {
-      // ignore execCommand failures
-    }
-  }
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const isMod = e.metaKey || e.ctrlKey
-    if (!isMod) return
-    const k = e.key.toLowerCase()
-    if (k === 'b') { e.preventDefault(); exec('bold') }
-    if (k === 'i') { e.preventDefault(); exec('italic') }
-    if (k === 'u') { e.preventDefault(); exec('underline') }
-  }
-
-  const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    const html = e.clipboardData.getData('text/html')
-    const text = e.clipboardData.getData('text/plain')
-    const sanitizedPaste = sanitizeRichTextPasteContent(html, text)
-    if (!sanitizedPaste) return
-
-    e.preventDefault()
-    exec(sanitizedPaste.command, sanitizedPaste.value)
-  }
-
-  return (
-    <div className="w-full rounded border">
-      <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>{boldLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>{italicLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>{underlineLabel}</Button>
-        <span className="mx-2 text-muted-foreground">|</span>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• {listLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>{heading3Label}</Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-auto px-2 py-0.5 text-xs"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            const url = sanitizeRichTextHref(window.prompt(linkUrlPrompt))
-            if (url) exec('createLink', url)
-          }}
-        >{linkLabel}</Button>
-      </div>
-      <div
-        ref={ref}
-        className="w-full px-2 py-2 min-h-[100px] sm:min-h-[160px] focus-visible:outline-none prose prose-sm max-w-none"
-        contentEditable
-        suppressContentEditableWarning
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-        onInput={() => { if (!applyingExternal.current) typingRef.current = true }}
-        onBlur={() => {
-          const el = ref.current
-          if (!el) return
-          typingRef.current = false
-          const sanitizedValue = sanitizeHtmlRichText(el.innerHTML)
-          if (el.innerHTML !== sanitizedValue) {
-            applyingExternal.current = true
-            el.innerHTML = sanitizedValue
-            requestAnimationFrame(() => { applyingExternal.current = false })
-          }
-          onChange(sanitizedValue)
-        }}
-      />
-    </div>
-  )
+  const labels = React.useMemo<Partial<RichEditorLabels>>(() => ({
+    bold: t('ui.forms.richtext.bold'),
+    italic: t('ui.forms.richtext.italic'),
+    underline: t('ui.forms.richtext.underline'),
+    unorderedList: t('ui.forms.richtext.list'),
+    orderedList: t('ui.forms.richtext.orderedList', 'Numbered list'),
+    heading: t('ui.forms.richtext.heading', 'Heading'),
+    heading1: t('ui.forms.richtext.heading1', 'Heading 1'),
+    heading2: t('ui.forms.richtext.heading2', 'Heading 2'),
+    heading3: t('ui.forms.richtext.heading3'),
+    paragraph: t('ui.forms.richtext.paragraph', 'Paragraph'),
+    link: t('ui.forms.richtext.link'),
+    linkUrlPrompt: t('ui.forms.richtext.linkUrlPrompt'),
+    placeholder: t('ui.forms.richtext.placeholder'),
+    comment: t('ui.forms.richtext.comment', 'Add comment'),
+    mention: t('ui.forms.richtext.mention', 'Mention'),
+    more: t('ui.forms.richtext.more', 'More'),
+  }), [t])
+  return <RichEditor value={value} onChange={onChange} variant="full" labels={labels} />
 }, (prev, next) => prev.value === next.value)
 
 // Very simple markdown editor with Bold/Italic/Underline + shortcuts.
@@ -3860,7 +4138,22 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
               className={`w-full justify-start rounded-none font-normal px-3 py-2 ${isSel ? 'bg-muted' : ''}`}
             >
               <span className="inline-flex items-center gap-2">
-                <Checkbox checked={isSel} disabled tabIndex={-1} className="pointer-events-none" />
+                {/* Decorative selection indicator — NOT an interactive Checkbox.
+                    The enclosing Button owns the click; a real Radix Checkbox here
+                    nests a <button> inside a <button> (hydration error) and its
+                    Presence/ref lifecycle drives an infinite update loop when the
+                    listbox renders selected values. A plain span mirrors the DS
+                    checkbox look without any of that. */}
+                <span
+                  aria-hidden="true"
+                  className={`inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${
+                    isSel
+                      ? 'border-accent-indigo bg-accent-indigo text-accent-indigo-foreground'
+                      : 'border-input bg-background'
+                  }`}
+                >
+                  {isSel ? <Check className="size-3.5" aria-hidden="true" /> : null}
+                </span>
                 <span>{opt.label}</span>
               </span>
             </Button>
@@ -3963,23 +4256,31 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'date' && (
-        <Input
-          type="date"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => setValue(field.id, e.target.value || undefined)}
-          autoFocus={autoFocusField}
-          data-crud-focus-target=""
+        <DatePicker
+          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
           disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          closeOnSelect={builtin?.closeOnSelect}
+          locale={builtin?.locale}
         />
       )}
       {field.type === 'datetime-local' && (
-        <Input
-          type="datetime-local"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => setValue(field.id, e.target.value || undefined)}
-          autoFocus={autoFocusField}
-          data-crud-focus-target=""
+        <DateTimePicker
+          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
           disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minuteStep={builtin?.minuteStep}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          locale={builtin?.locale}
         />
       )}
       {field.type === 'datepicker' && (
@@ -4036,7 +4337,7 @@ const FieldControl = React.memo(function FieldControlImpl({
         <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
       )}
       {field.type === 'richtext' && builtin?.editor === 'html' && (
-        <HtmlRichTextEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
       )}
       {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
         <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
@@ -4047,6 +4348,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
           autoFocus={autoFocusField}
+          suppressInitialSuggestionsOnFocus={autoFocusField}
           suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={
             typeof builtin?.loadOptions === 'function'
@@ -4069,6 +4371,12 @@ const FieldControl = React.memo(function FieldControlImpl({
               ? builtin.suggestions
               : options.map((opt) => ({ value: opt.value, label: opt.label }))
           }
+          seedOptions={
+            builtin?.seedOptions
+              ? builtin.seedOptions.map((opt) => ({ value: opt.value, label: opt.label }))
+              : undefined
+          }
+          resolveLabel={builtin?.resolveLabel}
           loadSuggestions={
             typeof builtin?.loadOptions === 'function'
               ? async (query?: string) => {
@@ -4078,6 +4386,7 @@ const FieldControl = React.memo(function FieldControlImpl({
               : undefined
           }
           allowCustomValues={builtin?.allowCustomValues ?? true}
+          clearable={!field.required}
           disabled={disabled}
         />
       )}
@@ -4108,9 +4417,11 @@ const FieldControl = React.memo(function FieldControlImpl({
                 : String(value)
           }
           onValueChange={(next) => {
-            // Sentinel maps back to undefined so optional selects can be cleared.
+            // Custom field clears must be explicit nulls; normal optional
+            // fields keep the existing undefined clear semantics.
             if (!next || next === SELECT_CLEAR_SENTINEL) {
-              setValue(field.id, undefined)
+              const isCustomField = field.id.startsWith('cf_') || field.id.startsWith('cf:')
+              setValue(field.id, isCustomField ? null : undefined)
               return
             }
             setValue(field.id, next)

@@ -2,6 +2,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -119,13 +120,19 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
       updatedAt: now,
     })
     em.persist(record)
-    
-    // Enforce only one base currency before flush to prevent race conditions
-    if (record.isBase) {
-      await enforceBaseCurrency(em, record.id, record.organizationId, record.tenantId)
-    }
-    
-    await em.flush()
+
+    // Demote any existing base currency and insert the new record in one
+    // transaction; a partial commit would leave zero or two base currencies.
+    await withAtomicFlush(
+      em,
+      [
+        () =>
+          record.isBase
+            ? enforceBaseCurrency(em, record.id, record.organizationId, record.tenantId)
+            : undefined,
+      ],
+      { transaction: true },
+    )
 
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -223,17 +230,28 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
       return { currencyId: record.id }
     }
 
-    for (const [key, change] of Object.entries(changes)) {
-      ;(record as any)[key] = change.to
-    }
-    record.updatedAt = new Date()
-    
-    // Enforce only one base currency before flush to prevent race conditions
-    if (parsed.isBase === true && record.isBase) {
-      await enforceBaseCurrency(em, record.id, record.organizationId, record.tenantId)
-    }
-    
-    await em.flush()
+    // Demote any existing base currency and persist the scalar changes in one
+    // transaction; a partial commit would leave zero or two base currencies.
+    // The scalar mutations live in the first phase so the per-phase flush issues
+    // the pending changeset on the managed `record` before `enforceBaseCurrency`
+    // runs its interleaved `nativeUpdate` (which would otherwise drop the pending
+    // UPDATE under v7).
+    await withAtomicFlush(
+      em,
+      [
+        () => {
+          for (const [key, change] of Object.entries(changes)) {
+            ;(record as any)[key] = change.to
+          }
+          record.updatedAt = new Date()
+        },
+        () =>
+          parsed.isBase === true && record.isBase
+            ? enforceBaseCurrency(em, record.id, record.organizationId, record.tenantId)
+            : undefined,
+      ],
+      { transaction: true },
+    )
 
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({

@@ -7,7 +7,9 @@ import { CrudForm, type CrudField, type CrudFormGroup, type CrudFormGroupCompone
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError, type CrudServerFieldErrors } from '@open-mercato/ui/backend/utils/serverErrors'
-import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -20,6 +22,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { Loader2, Search, Image as ImageIcon, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -40,6 +43,8 @@ type PriceOverrideDraft = {
   currencyCode?: string | null
   displayMode?: 'including-tax' | 'excluding-tax' | null
   amount?: string
+  /** The price row's version, for the per-price optimistic-lock header (#2332). */
+  updatedAt?: string | null
 }
 
 export type OfferFormValues = {
@@ -50,6 +55,7 @@ export type OfferFormValues = {
   defaultMediaId?: string | null
   isActive: boolean
   priceOverrides: PriceOverrideDraft[]
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 type ChannelOfferFormProps = {
@@ -140,13 +146,15 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
   const variantMediaCache = React.useRef<Map<string, VariantThumbnailInfo>>(new Map())
   const [selectedChannelId, setSelectedChannelId] = React.useState<string | null>(lockedChannelId ?? null)
   const manualMediaSelections = React.useRef<Set<string>>(new Set())
-  const initialPriceIdsRef = React.useRef<Set<string>>(new Set())
+  // Map of the loaded price-override id → its `updatedAt`, so deletes during the
+  // offer save can send the price's own optimistic-lock version (#2332).
+  const initialPriceVersionsRef = React.useRef<Map<string, string | null>>(new Map())
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(null)
   React.useEffect(() => {
     if (initialValues) {
-      initialPriceIdsRef.current = collectPriceIds(initialValues.priceOverrides)
+      initialPriceVersionsRef.current = collectPriceVersions(initialValues.priceOverrides)
     } else {
-      initialPriceIdsRef.current = new Set()
+      initialPriceVersionsRef.current = new Map()
     }
   }, [initialValues])
   const channelOffersHref = React.useMemo(
@@ -290,7 +298,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           { errorMessage: t('sales.channels.offers.errors.loadOffer', 'Failed to load offer.') },
         )
         const offer = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!offer) throw new Error('not_found')
+        if (!offer) throw new Error(t('sales.channels.offers.errors.notFound', 'Offer not found.'))
         const values = mapOfferToFormValues(offer, lockedChannelId)
         const pricePayload = await readApiResultOrThrow<PriceResponse>(
           `/api/catalog/prices?offerId=${encodeURIComponent(offer.id as string)}&pageSize=${MAX_LIST_PAGE_SIZE}`,
@@ -437,12 +445,16 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     if (!priceId) return true
     if (mode !== 'edit') return true
     try {
-      await deleteCrud('catalog/prices', priceId, {
-        errorMessage: t('sales.channels.offers.errors.removePrice', 'Failed to remove price override.'),
-      })
-      initialPriceIdsRef.current.delete(priceId)
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(draft.updatedAt),
+        () => deleteCrud('catalog/prices', priceId, {
+          errorMessage: t('sales.channels.offers.errors.removePrice', 'Failed to remove price override.'),
+        }),
+      )
+      initialPriceVersionsRef.current.delete(priceId)
       return true
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) return false
       console.error('sales.channels.pricing.remove', err)
       flash(t('sales.channels.offers.errors.removePrice', 'Failed to remove price override.'), 'error')
       return false
@@ -593,10 +605,11 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     }
     const submittedPriceIds = collectPriceIds(overrides)
     const deletedIdSet = new Set<string>()
-    initialPriceIdsRef.current.forEach((id) => {
+    initialPriceVersionsRef.current.forEach((_version, id) => {
       if (!submittedPriceIds.has(id)) deletedIdSet.add(id)
     })
     const deletedIds = Array.from(deletedIdSet)
+    const deletedVersions = new Map(deletedIds.map((id) => [id, initialPriceVersionsRef.current.get(id) ?? null]))
     let savedId = offerId ?? null
     try {
       if (mode === 'create') {
@@ -611,6 +624,13 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         savedId = offerId
       }
     } catch (err) {
+      // Let an optimistic-lock 409 propagate untouched so CrudForm's
+      // extractOptimisticLockConflict still sees the top-level `code` /
+      // `currentUpdatedAt` / `expectedUpdatedAt` and surfaces the unified
+      // conflict bar. Re-wrapping via createCrudFormError below would drop them.
+      if (extractOptimisticLockConflict(err)) {
+        throw err
+      }
       const details = (err as { details?: unknown })?.details
       const rawFieldErrors = (err as { fieldErrors?: unknown })?.fieldErrors
       const fieldErrors = rawFieldErrors && typeof rawFieldErrors === 'object'
@@ -633,15 +653,16 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       await syncPriceOverrides({
         overrides,
         deletedIds,
+        deletedVersions,
         offerId: savedId,
         channelId,
         productId,
       })
-      initialPriceIdsRef.current = submittedPriceIds
+      initialPriceVersionsRef.current = collectPriceVersions(overrides)
     }
     flash(t('sales.channels.offers.messages.saved', 'Offer saved.'), 'success')
     router.push(buildChannelOffersHref(channelId))
-  }, [attachmentCache, initialPriceIdsRef, lockedChannelId, mode, offerId, router, selectedChannelId, t])
+  }, [attachmentCache, lockedChannelId, mode, offerId, router, selectedChannelId, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!offerId) return
@@ -668,6 +689,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         fields={fields}
         groups={groups}
         initialValues={initialValues ?? undefined}
+        optimisticLockUpdatedAt={initialValues?.updatedAt}
         isLoading={loading}
         loadingMessage={t('sales.channels.offers.form.loading', 'Loading offer…')}
         submitLabel={mode === 'create'
@@ -705,6 +727,11 @@ function mapOfferToFormValues(item: Record<string, unknown>, lockedChannelId?: s
         : null,
     isActive: item.isActive === true || item.is_active === true,
     priceOverrides: [],
+    updatedAt: typeof item.updatedAt === 'string'
+      ? item.updatedAt
+      : typeof item.updated_at === 'string'
+        ? item.updated_at
+        : null,
   }
   mergeCustomFieldValues(values, item)
   return values
@@ -741,6 +768,11 @@ function mapPriceRow(row: Record<string, unknown>): PriceOverrideDraft {
           : typeof row.unit_price_gross === 'string'
             ? row.unit_price_gross
             : '',
+    updatedAt: typeof row.updatedAt === 'string'
+      ? row.updatedAt
+      : typeof row.updated_at === 'string'
+        ? row.updated_at
+        : null,
   }
 }
 
@@ -752,56 +784,19 @@ function collectPriceIds(source: PriceOverrideDraft[] | null | undefined): Set<s
   return new Set(ids)
 }
 
+function collectPriceVersions(source: PriceOverrideDraft[] | null | undefined): Map<string, string | null> {
+  const versions = new Map<string, string | null>()
+  if (!Array.isArray(source)) return versions
+  for (const entry of source) {
+    if (typeof entry?.priceId === 'string' && entry.priceId) {
+      versions.set(entry.priceId, typeof entry.updatedAt === 'string' ? entry.updatedAt : null)
+    }
+  }
+  return versions
+}
+
 function mergeCustomFieldValues(target: Record<string, unknown>, source: Record<string, unknown> | null | undefined) {
-  if (!source || typeof source !== 'object') return
-  const assign = (key: string | null | undefined, value: unknown) => {
-    if (!key) return
-    target[`cf_${key}`] = value
-  }
-  for (const [rawKey, rawValue] of Object.entries(source)) {
-    if (rawKey.startsWith('cf_')) {
-      if (rawKey.endsWith('__is_multi')) continue
-      target[rawKey] = rawValue
-    } else if (rawKey.startsWith('cf:')) {
-      assign(rawKey.slice(3), rawValue)
-    }
-  }
-  const customValues =
-    (source as Record<string, unknown>).customValues ??
-    (source as Record<string, unknown>).custom_values
-  if (customValues && typeof customValues === 'object' && !Array.isArray(customValues)) {
-    for (const [key, value] of Object.entries(customValues as Record<string, unknown>)) {
-      assign(key, value)
-    }
-  }
-  const customFields =
-    (source as Record<string, unknown>).customFields ??
-    (source as Record<string, unknown>).custom_fields
-  if (Array.isArray(customFields)) {
-    customFields.forEach((entry) => {
-      if (!entry || typeof entry !== 'object') return
-      const entryRecord = entry as Record<string, unknown>
-      const key = typeof entryRecord.key === 'string' ? entryRecord.key : null
-      if (!key) return
-      assign(key, entryRecord.value)
-    })
-  } else if (customFields && typeof customFields === 'object') {
-    for (const [key, value] of Object.entries(customFields as Record<string, unknown>)) {
-      assign(key, value)
-    }
-  }
-  const customEntries =
-    (source as Record<string, unknown>).customFieldEntries ??
-    (source as Record<string, unknown>).custom_field_entries
-  if (Array.isArray(customEntries)) {
-    customEntries.forEach((entry) => {
-      if (!entry || typeof entry !== 'object') return
-      const entryRecord = entry as Record<string, unknown>
-      const key = typeof entryRecord.key === 'string' ? entryRecord.key : null
-      if (!key) return
-      assign(key, entryRecord.value)
-    })
-  }
+  Object.assign(target, extractCustomFieldEntries(source ?? {}))
 }
 
 function buildChannelOffersHref(channelId?: string | null): string {
@@ -813,11 +808,12 @@ function buildChannelOffersHref(channelId?: string | null): string {
 async function syncPriceOverrides(params: {
   overrides: PriceOverrideDraft[]
   deletedIds: string[]
+  deletedVersions: Map<string, string | null>
   offerId: string
   channelId: string
   productId: string
 }) {
-  const { overrides, deletedIds, offerId, channelId, productId } = params
+  const { overrides, deletedIds, deletedVersions, offerId, channelId, productId } = params
   for (const draft of overrides) {
     if (!draft.priceKindId || !draft.amount) continue
     const amount = Number(draft.amount)
@@ -835,7 +831,14 @@ async function syncPriceOverrides(params: {
       payload.unitPriceNet = amount
     }
     if (draft.priceId) {
-      await updateCrud('catalog/prices', { id: draft.priceId, ...payload })
+      // Send the PRICE's own version, overriding the offer header the parent
+      // CrudForm submit scope put on the stack (otherwise the price guard would
+      // compare the offer's `updated_at` and 409 falsely). #2332.
+      const priceId = draft.priceId
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(draft.updatedAt),
+        () => updateCrud('catalog/prices', { id: priceId, ...payload }),
+      )
     } else {
       await createCrud('catalog/prices', payload)
     }
@@ -846,7 +849,10 @@ async function syncPriceOverrides(params: {
   for (const id of uniqueDeletedIds) {
     if (!id) continue
     try {
-      await deleteCrud('catalog/prices', id)
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(deletedVersions.get(id) ?? null),
+        () => deleteCrud('catalog/prices', id),
+      )
     } catch (err) {
       console.error('catalog.prices.delete', err)
     }

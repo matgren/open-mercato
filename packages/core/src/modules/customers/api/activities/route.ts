@@ -8,7 +8,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -28,6 +28,7 @@ import { resolveCustomerInteractionFeatureFlags } from '../../lib/interactionFea
 import { resolveCustomersRequestContext } from '../../lib/interactionRequestContext'
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
+import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
 
 const listSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -185,7 +186,7 @@ function paginateActivityItems(
   }
 }
 
-async function decorateActivityItems(
+export async function decorateActivityItems(
   em: EntityManager,
   items: ActivityItem[],
   decryptionScope?: { tenantId: string; organizationId: string },
@@ -207,12 +208,23 @@ async function decorateActivityItems(
     ),
   )
 
+  if (dealIds.length > 0 && (!decryptionScope?.tenantId || !decryptionScope?.organizationId)) {
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(400, {
+      error: translate('customers.errors.tenant_required', 'Tenant context is required'),
+    })
+  }
+
   const [users, deals] = await Promise.all([
     authorIds.length > 0 ? em.find(User, { id: { $in: authorIds } }) : Promise.resolve([]),
-    dealIds.length > 0
-      ? decryptionScope
-        ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, decryptionScope)
-        : em.find(CustomerDeal, { id: { $in: dealIds } })
+    dealIds.length > 0 && decryptionScope
+      ? findWithDecryption(
+          em,
+          CustomerDeal,
+          { id: { $in: dealIds }, tenantId: decryptionScope.tenantId, organizationId: decryptionScope.organizationId },
+          undefined,
+          decryptionScope,
+        )
       : Promise.resolve([]),
   ])
 
@@ -279,6 +291,18 @@ async function listCanonicalActivities(
   if (options?.source) {
     where.source = Array.isArray(options.source) ? { $in: options.source } : options.source
   }
+
+  // Per-user email privacy: exclude other users' private email interactions from
+  // the deprecated /activities surface (mirrors the /interactions Layer-1 filter).
+  // v1 strict owner-only — no admin bypass (the filter ignores caller features).
+  const activitiesViewerUserId = auth.keyId ? null : (auth.sub ?? auth.userId ?? null)
+  Object.assign(
+    where,
+    buildEmailVisibilityMikroFilter({
+      currentUserId: activitiesViewerUserId,
+      userFeatures: undefined,
+    }),
+  )
 
   const findOptions = {
     orderBy: buildCanonicalOrderBy(query.sortField, query.sortDir ?? 'desc'),
@@ -449,7 +473,7 @@ export async function GET(request: Request): Promise<Response> {
       }),
     )
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
     if (err instanceof z.ZodError) {
@@ -543,7 +567,7 @@ export async function POST(request: Request): Promise<Response> {
       ),
     )
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
     if (err instanceof z.ZodError) {
@@ -620,7 +644,7 @@ export async function PUT(request: Request): Promise<Response> {
 
     return withAdapterHeaders(NextResponse.json({ ok: true }))
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
     if (err instanceof z.ZodError) {
@@ -682,7 +706,7 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     return withAdapterHeaders(NextResponse.json({ ok: true }))
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
     if (err instanceof z.ZodError) {

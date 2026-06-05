@@ -8,6 +8,7 @@ import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import spawn from 'cross-spawn'
+import { fetchWithTimeout, type FetchWithTimeoutInit } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { resolveEnvironment } from '../resolver'
 import { resolveSpawnCommand } from '../spawn'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
@@ -138,6 +139,8 @@ type EphemeralEnvironmentState = {
   status: 'running'
   baseUrl: string
   port: number
+  databaseUrl: string
+  queueBaseDir: string
   source: string
   captureScreenshots: boolean
   startedAt: string
@@ -772,6 +775,14 @@ function delay(milliseconds: number): Promise<void> {
   })
 }
 
+// Each readiness probe fetch is bounded so a single stuck connection cannot consume the whole
+// readiness budget; on timeout it surfaces as a probe failure and the next cycle retries.
+const READINESS_PROBE_FETCH_TIMEOUT_MS = 15_000
+
+function probeFetch(input: string, init: FetchWithTimeoutInit = {}): Promise<Response> {
+  return fetchWithTimeout(input, { timeoutMs: READINESS_PROBE_FETCH_TIMEOUT_MS, ...init })
+}
+
 export function resolveBuildCacheTtlSeconds(logPrefix: string): number {
   const rawValue = process.env[BUILD_CACHE_TTL_ENV_VAR]
   if (!rawValue) {
@@ -920,7 +931,15 @@ async function hasBuildInputChangesSince(
       }
       seenPaths.add(resolvedPath)
 
-      const fileStat = await stat(resolvedPath)
+      let fileStat: Awaited<ReturnType<typeof stat>>
+      try {
+        fileStat = await stat(resolvedPath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return true
+        }
+        throw error
+      }
       if (fileStat.isFile() && fileStat.mtimeMs > timestampMs) {
         return true
       }
@@ -1160,6 +1179,8 @@ async function getPreferredPort(preferredPort: number): Promise<number> {
 export async function writeEphemeralEnvironmentState(input: {
   baseUrl: string
   port: number
+  databaseUrl: string
+  queueBaseDir: string
   logPrefix: string
   captureScreenshots: boolean
 }): Promise<void> {
@@ -1167,6 +1188,8 @@ export async function writeEphemeralEnvironmentState(input: {
     status: 'running',
     baseUrl: input.baseUrl,
     port: input.port,
+    databaseUrl: input.databaseUrl,
+    queueBaseDir: input.queueBaseDir,
     source: input.logPrefix,
     captureScreenshots: input.captureScreenshots,
     startedAt: new Date().toISOString(),
@@ -1211,6 +1234,12 @@ export async function readEphemeralEnvironmentState(): Promise<EphemeralEnvironm
   if (typeof record.port !== 'number' || !Number.isFinite(record.port) || record.port < 1) {
     return null
   }
+  if (typeof record.databaseUrl !== 'string' || record.databaseUrl.length === 0) {
+    return null
+  }
+  if (typeof record.queueBaseDir !== 'string' || record.queueBaseDir.length === 0) {
+    return null
+  }
   if (typeof record.source !== 'string' || record.source.length === 0) {
     return null
   }
@@ -1225,6 +1254,8 @@ export async function readEphemeralEnvironmentState(): Promise<EphemeralEnvironm
     status: 'running',
     baseUrl: record.baseUrl,
     port: record.port,
+    databaseUrl: record.databaseUrl,
+    queueBaseDir: record.queueBaseDir,
     source: record.source,
     captureScreenshots: record.captureScreenshots,
     startedAt: record.startedAt,
@@ -1241,7 +1272,7 @@ function isSuccessfulBrowserNavigationStatus(status: number): boolean {
 
 async function probeLoginPage(baseUrl: string): Promise<LoginPageProbeResult> {
   try {
-    const response = await fetch(`${baseUrl}/login`, {
+    const response = await probeFetch(`${baseUrl}/login`, {
       method: 'GET',
       redirect: 'manual',
     })
@@ -1287,7 +1318,7 @@ async function probeBackendLoginEndpoint(baseUrl: string): Promise<BackendLoginP
     const form = new URLSearchParams()
     form.set('email', 'integration-healthcheck@example.invalid')
     form.set('password', 'invalid-password')
-    const response = await fetch(`${baseUrl}/api/auth/login`, {
+    const response = await probeFetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       redirect: 'manual',
       headers: {
@@ -1319,7 +1350,7 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
     const form = new URLSearchParams()
     form.set('email', 'admin@acme.com')
     form.set('password', 'secret')
-    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+    const loginResponse = await probeFetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       redirect: 'manual',
       headers: {
@@ -1350,7 +1381,7 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
       }
     }
 
-    const apiResponse = await fetch(`${baseUrl}/api/customers/people?pageSize=1`, {
+    const apiResponse = await probeFetch(`${baseUrl}/api/customers/people?pageSize=1`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -1606,9 +1637,15 @@ export async function acquireEphemeralRuntimeLock(
   }
 }
 
-function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean): NodeJS.ProcessEnv {
+function buildReusableEnvironment(
+  baseUrl: string,
+  databaseUrl: string,
+  queueBaseDir: string,
+  captureScreenshots: boolean,
+): NodeJS.ProcessEnv {
   const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
   return buildEnvironment({
+    DATABASE_URL: databaseUrl,
     BASE_URL: baseUrl,
     APP_URL: baseUrl,
     NEXT_PUBLIC_APP_URL: baseUrl,
@@ -1621,6 +1658,10 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
     OM_TEST_MODE: '1',
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    // Tests assert on access_logs immediately after CRUD reads; keep the
+    // blocking write path on inside the integration runtime so tests do
+    // not have to call flushPendingCrudAccessLogs() explicitly.
+    OM_CRUD_ACCESS_LOG_BLOCKING: process.env.OM_CRUD_ACCESS_LOG_BLOCKING ?? '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
@@ -1628,8 +1669,10 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
     CI: 'true',
+    TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
     OM_CLI_QUIET: '1',
     MERCATO_QUIET: '1',
+    QUEUE_BASE_DIR: queueBaseDir,
     NODE_NO_WARNINGS: '1',
     PW_CAPTURE_SCREENSHOTS: captureScreenshots ? '1' : '0',
   })
@@ -1686,37 +1729,63 @@ export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptio
   return {
     baseUrl: state.baseUrl,
     port: state.port,
-    databaseUrl: '',
-    commandEnvironment: buildReusableEnvironment(state.baseUrl, state.captureScreenshots),
+    databaseUrl: state.databaseUrl,
+    commandEnvironment: buildReusableEnvironment(
+      state.baseUrl,
+      state.databaseUrl,
+      state.queueBaseDir,
+      state.captureScreenshots,
+    ),
     ownedByCurrentProcess: false,
     stop: async () => {},
   }
 }
 
-async function waitForApplicationReadiness(
+export async function waitForApplicationReadiness(
   baseUrl: string,
   appProcess: ChildProcess,
-  options: { timeoutMs: number },
+  options: { timeoutMs: number; intervalMs?: number; stabilizationMs?: number },
 ): Promise<void> {
   const startTimestamp = Date.now()
-  const exitPromise = getProcessExitPromise(appProcess)
-  const readinessStabilizationMs = 600
+  const intervalMs = options.intervalMs ?? APP_READY_INTERVAL_MS
+  const readinessStabilizationMs = options.stabilizationMs ?? 600
   let lastProbe: ApplicationReadinessProbeResult | null = null
 
+  // Wrap process exit into a single never-rejecting promise so we can race it without piling up
+  // rejection handlers or losing the exit code across loop iterations.
+  let exitCode: number | null = null
+  const exitSignal = getProcessExitPromise(appProcess).then(
+    (code) => {
+      exitCode = code ?? null
+      return { exited: true as const }
+    },
+    () => {
+      exitCode = null
+      return { exited: true as const }
+    },
+  )
+  const exitError = () =>
+    new Error(`Application process exited before readiness check (exit ${exitCode ?? 'unknown'})`)
+
   while (Date.now() - startTimestamp < options.timeoutMs) {
-    const result = await Promise.race([
-      probeApplicationReadiness(baseUrl).then((probe) => ({ kind: 'probe' as const, probe })),
-      exitPromise.then((code) => ({ kind: 'exit' as const, code })),
-      delay(APP_READY_INTERVAL_MS).then(() => ({ kind: 'timeout' as const })),
+    // Run one probe cycle to completion before starting the next. Overlapping cycles (the previous
+    // race-against-a-1s-tick design) abandoned slow probes without cancelling them, so every second
+    // a fresh /api/auth/login attempt piled onto the most expensive endpoint — amplifying the very
+    // contention that delays readiness when 15 ephemeral shards boot in parallel. Each fetch is
+    // independently bounded by fetchWithTimeout, so a stuck connection cannot stall the cycle.
+    const cycle = await Promise.race([
+      probeApplicationReadiness(baseUrl).then((probe) => ({ probe })),
+      exitSignal,
     ])
 
-    if (result.kind === 'probe') {
-      lastProbe = result.probe
-      if (!result.probe.ready) {
-        continue
-      }
+    if ('exited' in cycle) {
+      throw exitError()
+    }
+
+    lastProbe = cycle.probe
+    if (cycle.probe.ready) {
       const processExited = await Promise.race([
-        exitPromise.then(() => true),
+        exitSignal.then(() => true),
         delay(readinessStabilizationMs).then(() => false),
       ])
       if (processExited) {
@@ -1724,8 +1793,15 @@ async function waitForApplicationReadiness(
       }
       return
     }
-    if (result.kind === 'exit') {
-      throw new Error(`Application process exited before readiness check (exit ${result.code ?? 'unknown'})`)
+
+    const remainingMs = options.timeoutMs - (Date.now() - startTimestamp)
+    if (remainingMs <= 0) break
+    const waited = await Promise.race([
+      exitSignal,
+      delay(Math.min(intervalMs, remainingMs)).then(() => null),
+    ])
+    if (waited && 'exited' in waited) {
+      throw exitError()
     }
   }
 
@@ -2871,10 +2947,19 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
       NODE_ENV: 'production',
-      DB_POOL_MIN: '0',
-      DB_POOL_MAX: '5',
-      DB_POOL_IDLE_TIMEOUT: '1000',
-      DB_POOL_ACQUIRE_TIMEOUT: '10000',
+      // Pool sizing for the ephemeral integration runtime. Defaults were once
+      // very aggressive (max=5, idle=1000) which exposed flaky 'timeout exceeded
+      // when trying to connect' errors on `progressService.createJob`-backed
+      // endpoints (sync_excel.import, data_sync.run, progress.jobs) — each
+      // request acquires a transaction connection plus a separate connection
+      // for the encryption subscriber's fetchMap probe, and with 1s idle close
+      // the pool thrashes faster than pg-pool can repopulate. These values
+      // still keep the pool tighter than production but give enough headroom
+      // for the legitimate query bursts.
+      DB_POOL_MIN: '2',
+      DB_POOL_MAX: '20',
+      DB_POOL_IDLE_TIMEOUT: '10000',
+      DB_POOL_ACQUIRE_TIMEOUT: '15000',
       DB_IDLE_SESSION_TIMEOUT_MS: '30000',
       DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '30000',
       OM_INTEGRATION_TEST: 'true',
@@ -2891,9 +2976,23 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
-      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'om-ephemeral-integration-fallback-key',
-      AUTO_SPAWN_WORKERS: 'false',
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
+      AUTO_SPAWN_WORKERS: process.env.AUTO_SPAWN_WORKERS ?? 'true',
       AUTO_SPAWN_SCHEDULER: 'false',
+      // Hide the demo feedback floating action button — it lives at
+      // `fixed bottom-6 right-6 z-banner` and consistently intercepts pointer
+      // events on row-action menus and other bottom-of-viewport UI elements
+      // (e.g. TC-WF-006 Delete menuitem click). The widget is already gated
+      // on `DEMO_MODE !== 'false'` in the backend layout, so opting out here
+      // only affects the integration test runtime — dev + prod stay unchanged.
+      DEMO_MODE: 'false',
+      // Disable the feature-toggle resolution cache. Tests flip overrides
+      // (e.g. example_customers_sync enabled/bidirectional) between cases; the
+      // 1-minute resolution cache can serve a stale value across set/clear
+      // under fast churn, which made the example.todo.* persistent subscribers
+      // skip enqueueing inbound sync jobs (TC-CRM-028 inbound trio flake).
+      // Fresh DB reads make flag-gated sync deterministic in tests only.
+      OM_FEATURE_TOGGLES_CACHE_DISABLED: '1',
       OM_CLI_QUIET: '1',
       MERCATO_QUIET: '1',
       QUEUE_BASE_DIR: EPHEMERAL_QUEUE_BASE_DIR,
@@ -3021,6 +3120,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       await writeEphemeralEnvironmentState({
         baseUrl: applicationBaseUrl,
         port: applicationPort,
+        databaseUrl,
+        queueBaseDir: EPHEMERAL_QUEUE_BASE_DIR,
         logPrefix: options.logPrefix,
         captureScreenshots: options.captureScreenshots,
       })

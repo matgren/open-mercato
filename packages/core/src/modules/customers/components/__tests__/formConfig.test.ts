@@ -9,12 +9,23 @@ jest.mock('../detail/RolesSection', () => ({
 }))
 
 import {
+  buildCompanyEditPayload,
+  buildCompanyPayload,
+  buildPersonEditPayload,
+  buildPersonPayload,
   createCompanyDaneFiremyGroups,
+  createCompanyEditSchema,
+  createPersonEditSchema,
   createPersonPersonalDataGroups,
+  mapCompanyOverviewToFormValues,
+  mapPersonOverviewToFormValues,
   type Translator,
 } from '../formConfig'
 
 const t: Translator = (_key, fallback) => fallback ?? _key
+
+const PERSON_ID = '44444444-4444-4444-8444-444444444444'
+const COMPANY_ID = '55555555-5555-4555-8555-555555555555'
 
 describe('detail page zone1 group layouts', () => {
   it('keeps all company v2 zone1 groups in the sortable primary column', () => {
@@ -42,5 +53,162 @@ describe('detail page zone1 group layouts', () => {
       'roles',
     ])
     expect(groups.every((group) => group.column === 1)).toBe(true)
+  })
+
+  it('keeps selected custom select values and omits untouched undefined custom fields', () => {
+    const company = buildCompanyPayload({
+      displayName: 'Acme',
+      cf_relationship_health: 'monitor',
+      cf_renewal_quarter: undefined,
+    })
+
+    expect(company.customFields).toEqual({
+      relationship_health: 'monitor',
+    })
+  })
+
+  it('submits explicit custom select clears as null', () => {
+    const person = buildPersonPayload({
+      displayName: 'Ada Lovelace',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      cf_buying_role: null,
+    })
+
+    expect(person.customFields).toEqual({
+      buying_role: null,
+    })
+  })
+
+  it('maps company custom fields to prefixed edit-form keys', () => {
+    const values = mapCompanyOverviewToFormValues({
+      company: {
+        id: 'company-1',
+        displayName: 'Acme',
+        primaryPhone: null,
+        primaryEmail: null,
+        status: null,
+        lifecycleStage: null,
+        source: null,
+        description: null,
+      },
+      profile: {
+        legalName: null,
+        brandName: null,
+        domain: null,
+        websiteUrl: null,
+        industry: null,
+        sizeBucket: null,
+        annualRevenue: null,
+      },
+      customFields: {
+        relationship_health: 'healthy',
+        renewal_quarter: 'Q3',
+        customer_marketing_case: true,
+      },
+    } as any)
+
+    expect(values.cf_relationship_health).toBe('healthy')
+    expect(values.cf_renewal_quarter).toBe('Q3')
+    expect(values.cf_customer_marketing_case).toBe(true)
+  })
+
+  it('maps person custom fields to prefixed edit-form keys', () => {
+    const values = mapPersonOverviewToFormValues({
+      person: {
+        id: 'person-1',
+        displayName: 'Ada Lovelace',
+        primaryPhone: null,
+        primaryEmail: null,
+        status: null,
+        lifecycleStage: null,
+        source: null,
+        description: null,
+      },
+      profile: {
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        companyEntityId: null,
+        jobTitle: null,
+        department: null,
+        linkedInUrl: null,
+        twitterUrl: null,
+      },
+      customFields: {
+        buying_role: 'champion',
+      },
+    } as any)
+
+    expect(values.cf_buying_role).toBe('champion')
+  })
+})
+
+describe('clearing v2 URL & email edit fields (#2526)', () => {
+  it('transmits null when a previously-set person URL/email is blanked', () => {
+    const parsed = createPersonEditSchema().safeParse({
+      id: PERSON_ID,
+      displayName: 'Ada Lovelace',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      primaryEmail: '',
+      linkedInUrl: '',
+      twitterUrl: '',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildPersonEditPayload(parsed.data as any)
+    expect(payload.primaryEmail).toBeNull()
+    expect(payload.linkedInUrl).toBeNull()
+    expect(payload.twitterUrl).toBeNull()
+  })
+
+  it('keeps non-empty person URL/email values on edit', () => {
+    const parsed = createPersonEditSchema().safeParse({
+      id: PERSON_ID,
+      displayName: 'Ada Lovelace',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      primaryEmail: 'ada@example.com',
+      linkedInUrl: 'https://linkedin.com/in/ada',
+      twitterUrl: 'https://x.com/ada',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildPersonEditPayload(parsed.data as any)
+    expect(payload.primaryEmail).toBe('ada@example.com')
+    expect(payload.linkedInUrl).toBe('https://linkedin.com/in/ada')
+    expect(payload.twitterUrl).toBe('https://x.com/ada')
+  })
+
+  it('transmits null when a previously-set company website/email is blanked', () => {
+    const parsed = createCompanyEditSchema().safeParse({
+      id: COMPANY_ID,
+      displayName: 'Acme',
+      primaryEmail: '',
+      websiteUrl: '',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyEditPayload(parsed.data as any)
+    expect(payload.primaryEmail).toBeNull()
+    expect(payload.websiteUrl).toBeNull()
+  })
+
+  it('keeps non-empty company website/email values on edit', () => {
+    const parsed = createCompanyEditSchema().safeParse({
+      id: COMPANY_ID,
+      displayName: 'Acme',
+      primaryEmail: 'hello@acme.com',
+      websiteUrl: 'https://acme.com',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyEditPayload(parsed.data as any)
+    expect(payload.primaryEmail).toBe('hello@acme.com')
+    expect(payload.websiteUrl).toBe('https://acme.com')
   })
 })

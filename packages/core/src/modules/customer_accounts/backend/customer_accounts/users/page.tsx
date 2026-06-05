@@ -10,8 +10,11 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -27,6 +30,7 @@ type UserRow = {
   lastLoginAt: string | null
   roles: Array<{ id: string; name: string; slug: string }>
   createdAt: string
+  updatedAt?: string | null
   personEntityId: string | null
   customerEntityId: string | null
 }
@@ -144,9 +148,8 @@ function CreateUserDialog({
             <label className="text-sm font-medium" htmlFor="create-email">
               {t('customer_accounts.admin.createUser.fields.email', 'Email')}
             </label>
-            <Input
+            <EmailInput
               id="create-email"
-              type="email"
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
@@ -170,14 +173,14 @@ function CreateUserDialog({
             <label className="text-sm font-medium" htmlFor="create-password">
               {t('customer_accounts.admin.createUser.fields.password', 'Password')}
             </label>
-            <Input
+            <PasswordInput
               id="create-password"
-              type="password"
               required
               minLength={8}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder={t('customer_accounts.admin.createUser.fields.passwordPlaceholder', 'Min. 8 characters')}
+              autoComplete="new-password"
             />
           </div>
           {roleOptions.length > 0 && (
@@ -338,13 +341,16 @@ export default function CustomerAccountsPage() {
     if (!confirmed) return
     try {
       await runMutationWithContext(async () => {
-        const call = await apiCall(
-          `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ isActive: nextActive }),
-          },
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(user.updatedAt),
+          () => apiCall(
+            `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ isActive: nextActive }),
+            },
+          ),
         )
         if (!call.ok) {
           flash(t('customer_accounts.admin.error.toggleActive', 'Failed to update user status'), 'error')
@@ -374,9 +380,12 @@ export default function CustomerAccountsPage() {
     if (!confirmed) return
     try {
       await runMutationWithContext(async () => {
-        const call = await apiCall(
-          `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
-          { method: 'DELETE' },
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(user.updatedAt),
+          () => apiCall(
+            `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
+            { method: 'DELETE' },
+          ),
         )
         if (!call.ok) {
           flash(t('customer_accounts.admin.error.delete', 'Failed to delete user'), 'error')

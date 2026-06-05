@@ -23,7 +23,8 @@ import {
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -31,7 +32,6 @@ import {
   ArrowRightLeft,
   Boxes,
   CalendarClock,
-  CircleAlert,
   Clock3,
   Gauge,
   Play,
@@ -66,6 +66,8 @@ type SyncOption = {
   description?: string | null
   providerKey?: string | null
   direction: 'import' | 'export' | 'bidirectional'
+  runMode?: 'generic' | 'provider'
+  canStartRun?: boolean
   supportedEntities: string[]
   hasCredentials: boolean
   isEnabled: boolean
@@ -87,6 +89,7 @@ type SyncScheduleRecord = {
   fullSync: boolean
   isEnabled: boolean
   lastRunAt: string | null
+  updatedAt?: string | null
 }
 
 type SyncSchedulesResponse = {
@@ -101,6 +104,7 @@ type SyncScheduleEditorState = {
   fullSync: boolean
   isEnabled: boolean
   lastRunAt: string | null
+  updatedAt?: string | null
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -170,6 +174,7 @@ function buildDefaultScheduleState(entityType: string): SyncScheduleEditorState 
     fullSync: normalized !== 'products',
     isEnabled: true,
     lastRunAt: null,
+    updatedAt: null,
   }
 }
 
@@ -327,6 +332,7 @@ export default function SyncRunsDashboardPage() {
         fullSync: record.fullSync,
         isEnabled: record.isEnabled,
         lastRunAt: record.lastRunAt,
+        updatedAt: record.updatedAt ?? null,
       })
       setIsLoadingSchedule(false)
     }
@@ -340,6 +346,7 @@ export default function SyncRunsDashboardPage() {
   }, [])
 
   const handleCancel = React.useCallback(async (row: SyncRunRow) => {
+    // optimistic-lock-exempt: run lifecycle action endpoint (cancel), not a concurrent record edit
     const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(row.id)}/cancel`, {
       method: 'POST',
     }, { fallback: null })
@@ -352,6 +359,7 @@ export default function SyncRunsDashboardPage() {
   }, [t])
 
   const handleRetry = React.useCallback(async (row: SyncRunRow) => {
+    // optimistic-lock-exempt: run lifecycle action endpoint (retry), not a concurrent record edit
     const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(row.id)}/retry`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -390,6 +398,7 @@ export default function SyncRunsDashboardPage() {
 
     try {
       const call = await runMutation({
+        // optimistic-lock-exempt: starts a new sync run (create), not a concurrent record edit
         operation: () => apiCall<{ id: string }>('/api/data_sync/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -439,6 +448,7 @@ export default function SyncRunsDashboardPage() {
     setIsSavingSchedule(true)
     try {
       const call = await runMutation({
+        // optimistic-lock-exempt: keyed upsert (POST, no record id/version in body) — guard targets id-addressed PUT/PATCH/DELETE
         operation: () => apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -483,6 +493,7 @@ export default function SyncRunsDashboardPage() {
         fullSync: call.result.fullSync,
         isEnabled: call.result.isEnabled,
         lastRunAt: call.result.lastRunAt,
+        updatedAt: call.result.updatedAt ?? null,
       })
       flash(t('data_sync.dashboard.schedule.success', 'Recurring schedule saved'), 'success')
     } catch (error) {
@@ -499,9 +510,12 @@ export default function SyncRunsDashboardPage() {
     setIsDeletingSchedule(true)
     try {
       const call = await runMutation({
-        operation: () => apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleEditor.id as string)}`, {
-          method: 'DELETE',
-        }, { fallback: null }),
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(scheduleEditor.updatedAt),
+          () => apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleEditor.id as string)}`, {
+            method: 'DELETE',
+          }, { fallback: null }),
+        ),
         mutationPayload: {
           scheduleId: scheduleEditor.id,
         },
@@ -524,7 +538,7 @@ export default function SyncRunsDashboardPage() {
     } finally {
       setIsDeletingSchedule(false)
     }
-  }, [runMutation, scheduleEditor.id, selectedEntityType, t])
+  }, [runMutation, scheduleEditor.id, scheduleEditor.updatedAt, selectedEntityType, t])
 
   const filters: FilterDef[] = [
     {
@@ -603,6 +617,7 @@ export default function SyncRunsDashboardPage() {
     selectedIntegration
     && selectedEntityType
     && selectedIntegration.isEnabled
+    && selectedIntegration.canStartRun !== false
     && selectedIntegration.hasCredentials,
   )
   const hasSavedSchedule = Boolean(scheduleEditor.id)
@@ -964,17 +979,22 @@ export default function SyncRunsDashboardPage() {
 
             {selectedIntegration && !selectedIntegration.isEnabled ? (
               <Alert variant="warning">
-                <AlertDescription className="inline-flex items-center gap-2">
-                  <CircleAlert className="size-4" />
-                  <span>{t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}</span>
+                <AlertDescription>
+                  {t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}
                 </AlertDescription>
               </Alert>
             ) : null}
             {selectedIntegration && !selectedIntegration.hasCredentials ? (
               <Alert variant="warning">
-                <AlertDescription className="inline-flex items-center gap-2">
-                  <CircleAlert className="size-4" />
-                  <span>{t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}</span>
+                <AlertDescription>
+                  {t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            {selectedIntegration && selectedIntegration.canStartRun === false ? (
+              <Alert variant="info">
+                <AlertDescription>
+                  {t('data_sync.dashboard.start.providerManaged', 'This integration starts sync runs from its own setup flow. Open the integration settings page to continue.')}
                 </AlertDescription>
               </Alert>
             ) : null}

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
 import { createDictionaryEntrySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -15,7 +15,11 @@ import {
   dictionariesErrorSchema,
   dictionariesTag,
 } from '../../openapi'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  resolveDictionaryEntrySortMode,
+  sortDictionaryEntries,
+} from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
 
@@ -64,18 +68,21 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
     }
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const dictionary = await loadDictionary(context, dictionaryId, { allowInherited: true })
-    const entries = await context.em.find(
+    const entries = await findWithDecryption(
+      context.em,
       DictionaryEntry,
       {
         dictionary,
         organizationId: dictionary.organizationId,
         tenantId: dictionary.tenantId,
       },
-      { orderBy: { position: 'asc', label: 'asc' } },
+      {},
+      { tenantId: dictionary.tenantId, organizationId: dictionary.organizationId },
     )
+    const sortedEntries = sortDictionaryEntries(entries, resolveDictionaryEntrySortMode(dictionary.entrySortMode))
 
     return NextResponse.json({
-      items: entries.map((entry) => ({
+      items: sortedEntries.map((entry) => ({
         id: entry.id,
         value: entry.value,
         label: entry.label,
@@ -88,7 +95,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
       })),
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries/:id/entries.GET] Unexpected error', err)
@@ -152,7 +159,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     }
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[dictionaries/:id/entries.POST] Unexpected error', err)
@@ -162,7 +169,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
 
 const dictionaryEntriesGetDoc: OpenApiMethodDoc = {
   summary: 'List dictionary entries',
-  description: 'Returns entries for the specified dictionary ordered by position.',
+  description: 'Returns entries for the specified dictionary ordered by its configured entry sort mode.',
   tags: [dictionariesTag],
   responses: [
     { status: 200, description: 'Dictionary entries.', schema: dictionaryEntryListResponseSchema },

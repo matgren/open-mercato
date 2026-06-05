@@ -37,7 +37,7 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
           { errorMessage: t('resources.resourceTypes.errors.load', 'Failed to load resource types.') },
         )
         const item = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!item) throw new Error('not_found')
+        if (!item) throw new Error(t('resources.resourceTypes.errors.notFound', 'Resource type not found.'))
         if (!cancelled) {
           const customValues = extractCustomFieldValues(item)
           setInitialValues({
@@ -54,8 +54,13 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
                 ? item.appearanceColor
                 : typeof item.appearance_color === 'string'
                   ? item.appearance_color
-                  : null,
+                : null,
             },
+            updatedAt: typeof item.updatedAt === 'string'
+              ? item.updatedAt
+              : typeof item.updated_at === 'string'
+                ? item.updated_at
+                : null,
             ...customValues,
           })
           setResourceCount(typeof item.resourceCount === 'number'
@@ -104,6 +109,7 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
         {error ? (
           <ErrorMessage label={error} />
         ) : null}
+        {/* optimistic-lock: ResourceTypeCrudForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (auto-derives the header on save + delete). */}
         <ResourceTypeCrudForm
           mode="edit"
           initialValues={initialValues ?? { id: resourceTypeId, name: '', description: '', appearance: { icon: null, color: null } }}

@@ -12,17 +12,25 @@ import {
   type CrudCustomFieldRenderProps,
 } from "@open-mercato/ui/backend/CrudForm";
 import { collectCustomFieldValues } from "@open-mercato/ui/backend/utils/customFieldValues";
-import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
+import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
+import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { createCrud, updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
+import { handleSectionMutationError } from "./optimisticLock";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@open-mercato/ui/primitives/dialog";
+import { useDialogKeyHandler } from "@open-mercato/ui/hooks/useDialogKeyHandler";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@open-mercato/ui/primitives/alert";
 import {
   Select,
   SelectContent,
@@ -227,6 +235,7 @@ type SalesLineDialogProps = {
   kind: "order" | "quote";
   documentId: string;
   currencyCode: string | null | undefined;
+  documentUpdatedAt?: string | null;
   organizationId: string | null;
   tenantId: string | null;
   initialLine?: SalesLineRecord | null;
@@ -350,11 +359,77 @@ function normalizeUnitPriceInputValue(value: number): string {
   return rounded.toString();
 }
 
+function mapProductOption(item: Record<string, unknown>): ProductOption | null {
+  const id = typeof item.id === "string" ? item.id : null;
+  if (!id) return null;
+  const productItem = item as ApiProductItem;
+  const title =
+    typeof item.title === "string"
+      ? item.title
+      : typeof productItem.name === "string"
+        ? productItem.name
+        : id;
+  const sku = typeof productItem.sku === "string" ? productItem.sku : null;
+  const thumbnail =
+    typeof productItem.default_media_url === "string"
+      ? productItem.default_media_url
+      : typeof productItem.defaultMediaUrl === "string"
+        ? productItem.defaultMediaUrl
+        : null;
+  const pricing =
+    typeof productItem.pricing === "object" && productItem.pricing
+      ? productItem.pricing
+      : null;
+  const metadata =
+    typeof productItem.metadata === "object" && productItem.metadata
+      ? productItem.metadata
+      : null;
+  const pricingMeta = pricing as ApiPricingMetadata | null;
+  const metaMeta = metadata as ApiPricingMetadata | null;
+  const pricingTaxRateId =
+    typeof pricingMeta?.tax_rate_id === "string" &&
+    pricingMeta.tax_rate_id.trim().length
+      ? pricingMeta.tax_rate_id.trim()
+      : typeof pricingMeta?.taxRateId === "string" &&
+          pricingMeta.taxRateId.trim().length
+        ? pricingMeta.taxRateId.trim()
+        : null;
+  const metaTaxRateId =
+    typeof metaMeta?.taxRateId === "string" && metaMeta.taxRateId.trim().length
+      ? metaMeta.taxRateId.trim()
+      : typeof metaMeta?.tax_rate_id === "string" &&
+          metaMeta.tax_rate_id.trim().length
+        ? metaMeta.tax_rate_id.trim()
+        : null;
+  const taxRateValue = normalizeNumber(
+    pricingMeta?.tax_rate ??
+      pricingMeta?.taxRate ??
+      productItem.tax_rate ??
+      productItem.taxRate,
+    Number.NaN,
+  );
+  const uomFields = getUomProductFields(item);
+  return {
+    id,
+    title,
+    sku,
+    thumbnailUrl: thumbnail,
+    taxRateId: pricingTaxRateId ?? metaTaxRateId ?? null,
+    taxRate: Number.isFinite(taxRateValue) ? taxRateValue : null,
+    defaultUnit: uomFields.defaultUnit,
+    defaultSalesUnit: uomFields.defaultSalesUnit,
+    defaultSalesUnitQuantity: Number.isFinite(uomFields.defaultSalesUnitQuantity)
+      ? uomFields.defaultSalesUnitQuantity
+      : null,
+  };
+}
+
 export function LineItemDialog({
   open,
   kind,
   documentId,
   currencyCode,
+  documentUpdatedAt,
   organizationId,
   tenantId,
   initialLine,
@@ -382,6 +457,8 @@ export function LineItemDialog({
   const [taxRates, setTaxRates] = React.useState<TaxRateOption[]>([]);
   const [lineStatuses, setLineStatuses] = React.useState<StatusOption[]>([]);
   const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([]);
+  const [deletedCatalogReference, setDeletedCatalogReference] =
+    React.useState(false);
   const [, setLineStatusLoading] = React.useState(false);
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map());
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map());
@@ -477,6 +554,7 @@ export function LineItemDialog({
       setVariantOption(null);
       setPriceOptions([]);
       setUnitOptions([]);
+      setDeletedCatalogReference(false);
       setEditingId(null);
       setFormResetKey((prev) => prev + 1);
     },
@@ -539,6 +617,29 @@ export function LineItemDialog({
     }
   }, []);
 
+  const loadProductOptionById = React.useCallback(
+    async (productId: string): Promise<ProductOption | null> => {
+      if (!productId) return null;
+      const response = await apiCall<{
+        items?: Array<Record<string, unknown>>;
+      }>(
+        `/api/catalog/products?id=${encodeURIComponent(productId)}&pageSize=1`,
+        undefined,
+        { fallback: { items: [] } },
+      );
+      const items = Array.isArray(response.result?.items)
+        ? response.result.items
+        : [];
+      const matched =
+        items.find((entry) => entry.id === productId) ?? items[0] ?? null;
+      if (!matched) return null;
+      const option = mapProductOption(matched);
+      if (option) productOptionsRef.current.set(option.id, option);
+      return option;
+    },
+    [],
+  );
+
   const loadProductOptions = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
       const params = new URLSearchParams({ pageSize: "8" });
@@ -557,88 +658,22 @@ export function LineItemDialog({
         : [];
       const mapped = items
         .map((item) => {
-          const id = typeof item.id === "string" ? item.id : null;
-          if (!id) return null;
-          const productItem = item as ApiProductItem;
-          const title =
-            typeof item.title === "string"
-              ? item.title
-              : typeof productItem.name === "string"
-                ? productItem.name
-                : id;
-          const sku =
-            typeof productItem.sku === "string" ? productItem.sku : null;
-          const thumbnail =
-            typeof productItem.default_media_url === "string"
-              ? productItem.default_media_url
-              : typeof productItem.defaultMediaUrl === "string"
-                ? productItem.defaultMediaUrl
-                : null;
-          const pricing =
-            typeof productItem.pricing === "object" && productItem.pricing
-              ? productItem.pricing
-              : null;
-          const metadata =
-            typeof productItem.metadata === "object" && productItem.metadata
-              ? productItem.metadata
-              : null;
-          const pricingMeta = pricing as ApiPricingMetadata | null;
-          const metaMeta = metadata as ApiPricingMetadata | null;
-          const pricingTaxRateId =
-            typeof pricingMeta?.tax_rate_id === "string" &&
-            pricingMeta.tax_rate_id.trim().length
-              ? pricingMeta.tax_rate_id.trim()
-              : typeof pricingMeta?.taxRateId === "string" &&
-                  pricingMeta.taxRateId.trim().length
-                ? pricingMeta.taxRateId.trim()
-                : null;
-          const metaTaxRateId =
-            typeof metaMeta?.taxRateId === "string" &&
-            metaMeta.taxRateId.trim().length
-              ? metaMeta.taxRateId.trim()
-              : typeof metaMeta?.tax_rate_id === "string" &&
-                  metaMeta.tax_rate_id.trim().length
-                ? metaMeta.tax_rate_id.trim()
-                : null;
-          const taxRateValue = normalizeNumber(
-            pricingMeta?.tax_rate ??
-              pricingMeta?.taxRate ??
-              productItem.tax_rate ??
-              productItem.taxRate,
-            Number.NaN,
-          );
-          const uomFields = getUomProductFields(item);
-          const defaultUnit = uomFields.defaultUnit;
-          const defaultSalesUnit = uomFields.defaultSalesUnit;
-          const defaultSalesUnitQuantity = uomFields.defaultSalesUnitQuantity;
+          const option = mapProductOption(item);
+          if (!option) return null;
           return {
-            id,
-            title,
-            subtitle: sku ?? undefined,
-            icon: thumbnail ? (
+            id: option.id,
+            title: option.title,
+            subtitle: option.sku ?? undefined,
+            icon: option.thumbnailUrl ? (
               <img
-                src={thumbnail}
-                alt={title}
+                src={option.thumbnailUrl}
+                alt={option.title}
                 className="h-8 w-8 rounded object-cover"
               />
             ) : (
-              buildPlaceholder(title)
+              buildPlaceholder(option.title)
             ),
-            option: {
-              id,
-              title,
-              sku,
-              thumbnailUrl: thumbnail,
-              taxRateId: pricingTaxRateId ?? metaTaxRateId ?? null,
-              taxRate: Number.isFinite(taxRateValue) ? taxRateValue : null,
-              defaultUnit,
-              defaultSalesUnit,
-              defaultSalesUnitQuantity: Number.isFinite(
-                defaultSalesUnitQuantity,
-              )
-                ? defaultSalesUnitQuantity
-                : null,
-            } satisfies ProductOption,
+            option,
           } as LookupSelectItem & { option: ProductOption };
         })
         .filter(
@@ -1414,21 +1449,33 @@ export function LineItemDialog({
 
       try {
         const action = editingId ? updateCrud : createCrud;
-        const result = await action(
-          resourcePath,
-          editingId ? { id: editingId, ...payload } : payload,
-          {
-            errorMessage: t(
-              "sales.documents.items.errorSave",
-              "Failed to save line.",
+        const result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(documentUpdatedAt),
+          () =>
+            action(
+              resourcePath,
+              editingId ? { id: editingId, ...payload } : payload,
+              {
+                errorMessage: t(
+                  "sales.documents.items.errorSave",
+                  "Failed to save line.",
+                ),
+              },
             ),
-          },
         );
         if (result.ok) {
           if (onSaved) await onSaved();
           closeDialog();
         }
       } catch (err) {
+        if (
+          handleSectionMutationError(err, t, () => {
+            if (onSaved) void onSaved();
+          })
+        ) {
+          closeDialog();
+          return;
+        }
         throw err;
       }
     },
@@ -1436,6 +1483,7 @@ export function LineItemDialog({
       currencyCode,
       documentId,
       documentKey,
+      documentUpdatedAt,
       editingId,
       priceOptions,
       productOption,
@@ -1474,6 +1522,18 @@ export function LineItemDialog({
               setFormValue?.("catalogSnapshot", null);
               setFormValue?.("quantityUnit", null);
             } else {
+              if (deletedCatalogReference) {
+                setDeletedCatalogReference(false);
+                setProductOption(null);
+                setVariantOption(null);
+                setPriceOptions([]);
+                setUnitOptions([]);
+                setFormValue?.("productId", null);
+                setFormValue?.("variantId", null);
+                setFormValue?.("priceId", null);
+                setFormValue?.("catalogSnapshot", null);
+                setFormValue?.("quantityUnit", null);
+              }
               setFormValue?.("unitPrice", "");
               setFormValue?.("priceMode", "gross");
             }
@@ -1508,6 +1568,35 @@ export function LineItemDialog({
           );
         },
       } satisfies CrudField,
+      ...(deletedCatalogReference
+        ? [
+            {
+              id: "deletedCatalogReference",
+              label: t(
+                "sales.documents.items.deletedCatalogReference.label",
+                "Deleted catalog item",
+              ),
+              type: "custom",
+              layout: "full",
+              component: () => (
+                <Alert status="information" style="lighter">
+                  <AlertTitle>
+                    {t(
+                      "sales.documents.items.deletedCatalogReference.title",
+                      "This catalog item was deleted",
+                    )}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {t(
+                      "sales.documents.items.deletedCatalogReference.description",
+                      "The saved line data is kept and the line is shown as a custom line. Switch to Catalog item to replace it with an existing product.",
+                    )}
+                  </AlertDescription>
+                </Alert>
+              ),
+            } satisfies CrudField,
+          ]
+        : []),
       ...(!isCustomLine
         ? [
             {
@@ -1528,6 +1617,7 @@ export function LineItemDialog({
                     const selectedOption = next
                       ? (productOptionsRef.current.get(next) ?? null)
                       : null;
+                    if (next) setDeletedCatalogReference(false);
                     setProductOption(selectedOption);
                     setVariantOption(null);
                     setPriceOptions([]);
@@ -2371,6 +2461,7 @@ export function LineItemDialog({
     loadProductOptions,
     loadVariantOptions,
     fetchLineStatusItems,
+    deletedCatalogReference,
     priceLoading,
     priceOptions,
     productOption,
@@ -2403,6 +2494,8 @@ export function LineItemDialog({
       resetForm();
       return;
     }
+    let cancelled = false;
+    setDeletedCatalogReference(false);
     setEditingId(initialLine.id);
     const nextForm = defaultForm(initialLine.currencyCode ?? currencyCode);
     const meta = initialLine.metadata ?? {};
@@ -2615,18 +2708,74 @@ export function LineItemDialog({
       variantOptionsRef.current.set(initialLine.productVariantId, option);
       resolvedVariantOption = option;
     }
-    if (resolvedProductOption) setProductOption(resolvedProductOption);
-    if (resolvedVariantOption) setVariantOption(resolvedVariantOption);
+    if (resolvedProductOption) {
+      setProductOption(resolvedProductOption);
+    } else {
+      setProductOption(null);
+    }
+    if (resolvedVariantOption) {
+      setVariantOption(resolvedVariantOption);
+    } else {
+      setVariantOption(null);
+    }
     const customValues = extractCustomFieldValues(
       initialLine as Record<string, unknown>,
     );
     const merged = { ...nextForm, ...customValues };
+    const markDeletedCatalogReference = () => {
+      if (cancelled) return;
+      const nextMerged = { ...merged, lineMode: "custom" as const };
+      setDeletedCatalogReference(true);
+      setProductOption(null);
+      setVariantOption(null);
+      setPriceOptions([]);
+      setUnitOptions([]);
+      setInitialValues(nextMerged);
+      setLineMode("custom");
+      setFormResetKey((prev) => prev + 1);
+    };
     setInitialValues(merged);
     setLineMode(merged.lineMode);
     setFormResetKey((prev) => prev + 1);
     if (initialLine.productId) {
+      void (async () => {
+        try {
+          const currentProduct = await loadProductOptionById(
+            initialLine.productId as string,
+          );
+          if (cancelled) return;
+          if (!currentProduct) {
+            markDeletedCatalogReference();
+            return;
+          }
+          if (merged.lineMode !== "custom") {
+            setProductOption(currentProduct);
+          }
+          if (initialLine.productVariantId) {
+            await loadVariantOptions(
+              initialLine.productId as string,
+              currentProduct.thumbnailUrl,
+            );
+            if (cancelled) return;
+            const currentVariant =
+              variantOptionsRef.current.get(initialLine.productVariantId) ??
+              null;
+            if (!currentVariant) {
+              markDeletedCatalogReference();
+              return;
+            }
+            if (merged.lineMode !== "custom") {
+              setVariantOption(currentVariant);
+            }
+          }
+          setDeletedCatalogReference(false);
+        } catch (err) {
+          console.error("sales.document.items.verifyCatalogReference", err);
+        }
+      })();
       void loadProductUnits(initialLine.productId, resolvedProductOption).then(
         (options) => {
+          if (cancelled) return;
           const requestedUnit = normalizeUnitCode(nextForm.quantityUnit);
           if (
             requestedUnit &&
@@ -2649,15 +2798,29 @@ export function LineItemDialog({
       setPriceOptions([]);
       setUnitOptions([]);
     }
+    return () => {
+      cancelled = true;
+    };
   }, [
     currencyCode,
     findTaxRateIdByValue,
     initialLine,
+    loadProductOptionById,
     loadPrices,
     loadProductUnits,
+    loadVariantOptions,
     open,
     resetForm,
   ]);
+
+  const handleSubmitForm = React.useCallback(
+    () => dialogContentRef.current?.querySelector("form")?.requestSubmit(),
+    [],
+  )
+  const handleKeyDown = useDialogKeyHandler({
+    onConfirm: handleSubmitForm,
+    onCancel: closeDialog,
+  })
 
   return (
     <Dialog
@@ -2667,16 +2830,7 @@ export function LineItemDialog({
       <DialogContent
         className="sm:max-w-5xl"
         ref={dialogContentRef}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-            event.preventDefault();
-            dialogContentRef.current?.querySelector("form")?.requestSubmit();
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
-            closeDialog();
-          }
-        }}
+        onKeyDown={handleKeyDown}
       >
         <DialogHeader>
           <DialogTitle>

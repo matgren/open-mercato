@@ -2,12 +2,13 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { applyEmailVisibilityFilter } from '../../../lib/visibilityFilter'
 
 const querySchema = z.object({
   entityId: z.string().uuid(),
@@ -87,6 +88,15 @@ export async function GET(req: Request) {
       baseQuery = baseQuery.where('status', '=', query.status)
     }
 
+    // Per-user email privacy: exclude other users' private emails from the
+    // per-type counts so the `email` total matches the visibility-filtered list.
+    // v1 strict owner-only — no admin bypass (the filter ignores caller features).
+    const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
+    baseQuery = applyEmailVisibilityFilter(baseQuery, {
+      currentUserId: viewerUserId,
+      userFeatures: undefined,
+    })
+
     // Raw SELECT: reads only unencrypted columns (id, interaction_type); title/notes are excluded to avoid ciphertext leakage.
     const rows = await baseQuery
       .select(['interaction_type', sql<string>`count(*)`.as('count')])
@@ -106,7 +116,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ ok: true, result: { ...counts, total } })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/interactions/counts] GET failed', err)

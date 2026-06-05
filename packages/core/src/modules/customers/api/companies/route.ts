@@ -14,7 +14,6 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   applyEntityIdExclusion,
   applyEntityIdRestriction,
-  consumeAdvancedFilterState,
   findMatchingEntityIdsWithQueryEngine,
   findMatchingEntityIdsBySearchTokensAcrossSources,
   withScopedPayload,
@@ -27,7 +26,7 @@ import {
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -112,15 +111,21 @@ const crud = makeCrudRoute({
       'tenant_id',
       'kind',
       'created_at',
+      'updated_at',
     ],
     sortFieldMap: {
       name: 'display_name',
+      email: 'primary_email',
+      primaryEmail: 'primary_email',
+      status: 'status',
+      lifecycleStage: 'lifecycle_stage',
+      source: 'source',
+      nextInteractionAt: 'next_interaction_at',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
     buildFilters: async (query, ctx) => {
-      const advancedQuery = { ...query }
-      const advancedFilterState = consumeAdvancedFilterState(query)
+      const advancedFilterTree = consumeAdvancedFilterState(query)
       const filters: Record<string, unknown> = { kind: { $eq: 'company' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
@@ -313,11 +318,8 @@ const crud = makeCrudRoute({
           console.warn('[customers.companies.list] custom field filter resolution failed; falling back to base filters', err)
         }
       }
-      if (ctx && advancedFilterState) {
-        const advancedFilters = mergeAdvancedFilters(
-          { ...filters },
-          advancedQuery as Record<string, unknown>,
-        )
+      if (ctx && advancedFilterTree) {
+        const advancedFilters = mergeAdvancedFilterTree({ ...filters }, advancedFilterTree)
         const matchedIds = await findMatchingEntityIdsWithQueryEngine({
           ctx,
           entityId: E.customers.customer_entity,
@@ -405,7 +407,19 @@ const crud = makeCrudRoute({
         const parsed = companyUpdateSchema.parse(base)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
-      response: () => ({ ok: true }),
+      // Return the freshly-bumped updatedAt so inline-edit detail pages can refresh
+      // their optimistic-lock token between sequential saves (avoids a false 409 on
+      // the 2nd inline edit now that locking is default-ON). #2055. The factory hands
+      // the updated entity here; read defensively in case a `{ result }` wrapper arrives.
+      response: (arg: { result?: unknown; updatedAt?: Date | string | null }) => {
+        const raw = arg?.updatedAt
+          ?? (arg?.result as { updatedAt?: Date | string | null } | null | undefined)?.updatedAt
+          ?? null
+        return {
+          ok: true,
+          updatedAt: raw instanceof Date ? raw.toISOString() : (typeof raw === 'string' ? raw : null),
+        }
+      },
     },
     delete: {
       commandId: 'customers.companies.delete',
@@ -528,5 +542,15 @@ export const openApi = createCustomersCrudOpenApi({
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
     description: 'Deletes a company by id. The identifier can be provided via body or query.',
+    errors: [
+      {
+        status: 422,
+        description: 'Company has dependent records (people, deals, or direct staff); unlink or reassign before delete.',
+        schema: z.object({
+          error: z.string(),
+          code: z.literal('COMPANY_HAS_DEPENDENTS'),
+        }),
+      },
+    ],
   },
 })

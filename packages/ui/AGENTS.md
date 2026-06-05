@@ -4,6 +4,41 @@ UI usage patterns based on customers, sales, and staff modules. Use these defaul
 
 > **DS reference:** [`.ai/ds-rules.md`](../../.ai/ds-rules.md) — color tokens, typography, spacing, decision trees. **Component reference (variants/sizes/props/examples/MUST rules):** [`.ai/ui-components.md`](../../.ai/ui-components.md).
 
+## Always
+
+- Use existing UI primitives and backend components before creating new ones.
+- Use `CrudForm` for create/edit flows and dialog forms unless the task explicitly needs a custom host.
+- Use `DataTable` as the default list view, including portal list pages.
+- Use `apiCall`/`apiCallOrThrow` for backend and portal data calls.
+- Use `useGuardedMutation` for every write that cannot use `CrudForm`.
+- Use i18n keys and `useT()` for user-facing copy.
+- Keep UMES spot IDs, replacement handles, field/group IDs, and portal page metadata stable.
+- Follow `.ai/ds-rules.md` and `.ai/ui-components.md` for tokens, primitives, and component contracts.
+
+## Ask First
+
+- Ask before changing primitive APIs, DataTable/CrudForm contracts, portal shell behavior, frozen portal spots, or replacement handles.
+- Ask before creating a new primitive or backend component when an existing component might fit.
+- Ask before changing default interaction patterns for dialogs, bulk actions, row clicks, or portal navigation.
+
+## Never
+
+- Never use raw `<button>`, raw checkbox inputs, or raw `<Link>` styled as a button.
+- Never use raw `fetch` in UI data flows where `apiCall` is available.
+- Never hard-code user-facing strings.
+- Never use `window.confirm`; use the shared confirmation dialog.
+- Never add custom per-page progress bars for DataTable bulk work.
+- Never omit `page.meta.ts` for guarded portal pages.
+- Never gate wildcard feature arrays with `includes(...)` or `Set.has(...)`.
+
+## Validation Commands
+
+```bash
+yarn workspace @open-mercato/ui test
+yarn workspace @open-mercato/ui build
+yarn i18n:check
+```
+
 ## Reference Modules
 
 - Customers: `packages/core/src/modules/customers/backend/customers/people/create/page.tsx`, `…/people/page.tsx`, `…/components/detail/TaskForm.tsx`
@@ -23,9 +58,17 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Marketing CTA with brand gradient | `FancyButton` | `@open-mercato/ui/primitives/fancy-button` |
 | Checkbox primitive (with indeterminate) | `Checkbox` | `@open-mercato/ui/primitives/checkbox` |
 | Checkbox with label + description | `CheckboxField` | `@open-mercato/ui/primitives/checkbox-field` |
-| Text input (text/email/password/number/etc.) | `Input` | `@open-mercato/ui/primitives/input` |
+| Text input (generic, text/number/url/etc.) | `Input` | `@open-mercato/ui/primitives/input` |
+| Email input (Figma Email variant — mail icon prefix) | `EmailInput` | `@open-mercato/ui/primitives/email-input` |
+| Search input (Figma Search variant — leading magnifier + trailing × clear) | `SearchInput` | `@open-mercato/ui/primitives/search-input` |
+| Password input (Figma Password variant — trailing eye/eye-off reveal toggle) | `PasswordInput` | `@open-mercato/ui/primitives/password-input` |
+| Phone input (Figma Phone variant — country picker + national number) | `PhoneNumberField` | `@open-mercato/ui/backend/inputs/PhoneNumberField` |
+| Website / URL input (Figma Website variant — `https://` prefix box) | `WebsiteInput` | `@open-mercato/ui/primitives/website-input` |
+| Amount input with currency picker (Figma Amount variant) | `AmountInput` | `@open-mercato/ui/primitives/amount-input` |
+| Input with trailing icon-button slot (Figma Button variant — copy URL, send, etc.) | `ButtonInput` | `@open-mercato/ui/primitives/button-input` |
+| Card-number input with brand auto-detection (Figma Card variant — Visa/MC/Amex/...) | `CardInput` | `@open-mercato/ui/primitives/card-input` |
 | Multi-line text input (with optional char counter) | `Textarea` | `@open-mercato/ui/primitives/textarea` |
-| Dropdown / select | `Select` (with `SelectTrigger` / `SelectContent` / `SelectItem`) | `@open-mercato/ui/primitives/select` |
+| Dropdown / select | `Select` (with `SelectTrigger` / `SelectTriggerLeading` / `SelectContent` / `SelectItem` / `SelectItemLeading`) | `@open-mercato/ui/primitives/select` |
 | Tooltip on hover (with arrow, dark/light) | `SimpleTooltip` (or `Tooltip`+`TooltipTrigger`+`TooltipContent`) | `@open-mercato/ui/primitives/tooltip` |
 | Toggle switch (binary on/off preference) | `Switch` | `@open-mercato/ui/primitives/switch` |
 | Switch with label + description (preference row) | `SwitchField` | `@open-mercato/ui/primitives/switch-field` |
@@ -34,9 +77,24 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | User / entity avatar | `Avatar`, `AvatarStack` | `@open-mercato/ui/primitives/avatar` |
 | Keyboard shortcut keys | `Kbd`, `KbdShortcut` | `@open-mercato/ui/primitives/kbd` |
 | Entity tag pill | `Tag` (with `TagMap`) | `@open-mercato/ui/primitives/tag` |
+| Breadcrumb navigation (DS-aligned, slash/arrow/dot divider, ARIA correct) | `Breadcrumb` (with `BreadcrumbList` / `BreadcrumbItem` / `BreadcrumbLink` / `BreadcrumbPage` / `BreadcrumbStatic` / `BreadcrumbSeparator` / `BreadcrumbEllipsis`) | `@open-mercato/ui/primitives/breadcrumb` |
+| Scrollable container with DS-styled scrollbars | `ScrollArea` (compound: `ScrollAreaRoot` / `Viewport` / `Scrollbar` / `Thumb` / `Corner`) | `@open-mercato/ui/primitives/scroll-area` |
+| Joined buttons sharing outer border (Save / Save & New / overflow) | `ButtonGroup` (NOT for selection — use `SegmentedControl`) | `@open-mercato/ui/primitives/button-group` |
+| Mutually-exclusive view toggle (All / Active / Archived, 1D / 1W / 1M) | `SegmentedControl` (with `SegmentedControlItem`) | `@open-mercato/ui/primitives/segmented-control` |
+| Continuous numeric selector — single or two-thumb range | `Slider` (`value` MUST be `[number]` or `[number, number]`) | `@open-mercato/ui/primitives/slider` |
+| 1-N star / heart / dot rating (read-only display OR interactive input) | `Rating` (no `onChange` = read-only; `onChange` = interactive) | `@open-mercato/ui/primitives/rating` |
+| Multi-step progress (wizard / onboarding / checkout) | `StepIndicator` (steps[] with `status` per step) | `@open-mercato/ui/primitives/step-indicator` |
+| Color selection (tag color, brand color, category) | `ColorPicker` (swatch popover + optional hex input) | `@open-mercato/ui/primitives/color-picker` |
+| Page navigation for lists outside DataTable | `Pagination` (1-indexed, `total` not `totalPages`) | `@open-mercato/ui/primitives/pagination` |
+| Side sheet / non-blocking overlay (detail pane, secondary form) | `Drawer` (with `DrawerContent` / `DrawerHeader` / `DrawerBody` / `DrawerFooter` / `DrawerClose`) | `@open-mercato/ui/primitives/drawer` |
+| Cmd+K spotlight palette (global navigation / quick actions / universal search) | `CommandMenu` (compound: `CommandMenuContent` / `Input` / `List` / `Group` / `Item` / `Separator` / `Footer`) — auto-filter via `cmdk` | `@open-mercato/ui/primitives/command-menu` |
+| Chronological actor-action timeline (detail panes, audit feeds, customer activity logs) | `ActivityFeed` (compound: `ActivityFeedItem` / `ActivityFeedFileChip` / `ActivityFeedComment` / `ActivityFeedStatusChip`) | `@open-mercato/ui/primitives/activity-feed` |
+| Bell-icon inbox / notification panel (the dropdown that opens from the app shell bell affordance) | `NotificationFeed` (compound: `NotificationFeedHeader` / `NotificationFeedList` / `NotificationFeedItem` / `NotificationFeedFooter` / `NotificationFeedIconBadge`) | `@open-mercato/ui/primitives/notification-feed` |
+| Determinate linear progress bar (job percentage, file upload, onboarding) | `Progress` (`size`: `sm`/`default`/`lg`, `tone`: `accent`/`success`/`warning`/`destructive`/`muted`, optional `label`/`showValue`/`description` slots) | `@open-mercato/ui/primitives/progress` |
+| Determinate circular progress (compact KPI dial, attachment upload thumbnail, sprint completion %) | `CircularProgress` (same `tone`s; `size`: `xs` / `sm` / `default` / `lg`; optional center `showValue` or custom `children`) | `@open-mercato/ui/primitives/progress` |
 | Wrap a `<Link>` as button | `Button asChild` / `IconButton asChild` | — |
 
-## Critical MUST rules (top of mind)
+## Critical Primitive Rules
 
 1. **NEVER use raw `<button>` or `<input type="checkbox">`** — always use the primitives. Native checkboxes get `accent-color: var(--accent-indigo)` as a safety net for legacy code, but new code MUST use `Checkbox`.
 2. **Always pass `type="button"` explicitly** on non-submit `Button`/`IconButton` — HTML defaults to `submit`.
@@ -58,6 +116,7 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 - Keep `fields` and `groups` in memoized helpers.
 - Pass `entityIds` when custom fields are involved.
 - Use `createCrud`/`updateCrud`/`deleteCrud` for submit actions and call `flash()` for success/failure messaging.
+- **Optimistic locking is automatic in edit mode.** When the form is editing an existing record (`initialValues` has an `id`), `CrudForm` auto-derives the `x-om-ext-optimistic-lock-expected-updated-at` header from `initialValues.updatedAt` (camel) / `updated_at` (snake) on submit AND delete — so **every edit form locks by default** with no per-form wiring. Therefore: edit-mode `initialValues` MUST include `updatedAt`. An explicit `optimisticLockUpdatedAt` prop (including `null`) overrides the derived value; create mode never attaches; pass `disableOptimisticLock` to opt out (e.g. forms whose locking is owned at the command layer, like sales document sub-resources, or entities without `updated_at`). Do NOT additionally wrap `updateCrud`/`deleteCrud` in `withScopedApiRequestHeaders(buildOptimisticLockHeader(...))` inside `onSubmit`/`onDelete` — that double-attaches; let `CrudForm` supply the header.
 
 ## UI Interaction
 - Every new dialog must support `Cmd/Ctrl + Enter` as a primary action shortcut and `Escape` to cancel, mirroring the shared UX patterns used across modules.
@@ -84,32 +143,33 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 
 | Size | px | Use case |
 |---|---|---|
-| `sm` | 24px | Table rows, AvatarStack, inline lists |
-| `default` | 32px | Default — sidebar, comments, activity feed |
-| `md` | 40px | Section headers, assignee cards |
-| `lg` | 80px | Profile / detail page header |
+| `xs` | 20px | Inline mentions, very compact lists |
+| `sm` | 28px | Table rows, AvatarStack, inline lists |
+| `md` (default) | 36px | Sidebar, comments, activity feed, assignee cards |
+| `lg` | 48px | Section headers, profile cards |
+| `xl` | 64px | Profile / detail page header |
 
 ### Usage
 
 ```tsx
 // Photo
-<Avatar src="/avatars/jan.jpg" name="Jan Kowalski" size="md" />
+<Avatar src="/avatars/jan.jpg" label="Jan Kowalski" size="md" />
 
-// Initials (auto-generated from name)
-<Avatar name="Jan Kowalski" />        // → "JK"
-<Avatar name="Copperleaf Design" />   // → "CD"
+// Initials (auto-generated from label)
+<Avatar label="Jan Kowalski" />        // → "JK"
+<Avatar label="Copperleaf Design" />   // → "CD"
 
 // Stack with overflow
 <AvatarStack max={3}>
-  <Avatar name="Jan Kowalski" size="sm" />
-  <Avatar name="Oliwia Z." size="sm" />
-  <Avatar name="Anna Nowak" size="sm" />
-  <Avatar name="Sarah Mitchell" size="sm" />
+  <Avatar label="Jan Kowalski" size="sm" />
+  <Avatar label="Oliwia Z." size="sm" />
+  <Avatar label="Anna Nowak" size="sm" />
+  <Avatar label="Sarah Mitchell" size="sm" />
 </AvatarStack>
 // renders: JK · OZ · AN · +1
 ```
 
-### MUST rules
+### Usage Rules
 
 - NEVER render `<div className="rounded-full bg-muted ...">` for avatars — use `Avatar`
 - `size="sm"` uses `text-[9px]` — DS exception for tiny initials (same as notification badge count)
@@ -147,7 +207,7 @@ import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'
 </span>
 ```
 
-### MUST rules
+### Usage Rules
 
 - NEVER use raw `<span>` or `<code>` to display keyboard keys — use `Kbd`
 - Platform-specific keys (`⌘` vs `Ctrl`): detect with `navigator.platform` or use `Ctrl/⌘` text when cross-platform
@@ -210,7 +270,7 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 <Tag variant={leadTagMap[tag.type]} dot>{tag.label}</Tag>
 ```
 
-### MUST rules
+### Usage Rules
 
 - NEVER hardcode colors on `Tag` — use variants only
 - Use `dot` for tags that represent a status-like category (Customer, Hot); omit for purely descriptive labels
@@ -230,6 +290,87 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 - Keep table state (paging, sorting, filters, search) in component state and reload on scope changes.
 - Keep `extensionTableId` stable and deterministic.
 - Render injected row actions and bulk actions through `RowActions`/bulk handlers so they follow the same guard and i18n behavior as built-ins.
+- For mutating bulk actions, show operation progress in `ProgressTopBar`: return `{ ok, progressJobId }` from server/queued actions, or use shared bulk helpers that emit client-local progress events for browser-bound loops. MUST NOT add custom per-page progress bars for DataTable bulk work.
+- Prefer server-side `ProgressJob` + queue workers for bulk work that may exceed one second, touch many records, call external services, or should continue after navigation. Use client-local progress only for short in-page loops that intentionally preserve response-side metadata such as undo headers.
+
+### Using DataTable in Portal Pages
+
+`DataTable` is exported from the package root (`@open-mercato/ui`) and is the recommended list view component for **customer portal pages**, not just backoffice surfaces. Build portal list views with `DataTable` directly rather than hand-rolling `<table>` markup or wrapping a custom component, so portal lists stay consistent with the rest of the product (sorting, pagination, empty states, accessibility, row-click semantics).
+
+Backoffice-only features are **all opt-in via props** — they do not activate unless explicitly passed. Portal pages should leave them unset:
+
+| Prop | Treat as | Why portal omits it |
+|------|----------|---------------------|
+| `exporter` | backoffice-only | Portal users should not export full datasets to CSV/JSON/XML/Markdown. |
+| `perspective` | backoffice-only | Saved-view perspectives belong in admin tools. |
+| `advancedFilter` | backoffice-only | The advanced filter builder is a power-user tool. |
+| `columnChooser` | backoffice-only | Column chooser/reorder is a backoffice affordance. |
+| `injectionSpotId` / `replacementHandle` / `entityId` | backoffice-only | Widget injection and component replacement target backoffice extension points; portals use `usePortalInjectedMenuItems` and portal-specific spots instead (see Portal Extension below). |
+| `bulkActions` | backoffice-only by default | Avoid bulk admin operations from the portal; if a portal flow legitimately needs row selection, scope it tightly and gate via `requireCustomerFeatures`. |
+
+Portal-safe props (always available):
+
+- `columns` — column definitions with `header`/`accessorKey` plus optional `meta.truncate`/`meta.maxWidth`
+- `data` — the rows to render (load via `apiCall` from `@open-mercato/ui/backend/utils/apiCall`)
+- `isLoading`, `error`, `emptyState` — loading/error/empty UX
+- `pagination`, `sorting`, `onSortingChange`, `sortable`
+- `onRowClick`, `rowClickActionIds`, `disableRowClick` — row navigation
+- `rowActions` — per-row inline actions via `RowActions`
+- `searchValue`, `onSearchChange`, `searchPlaceholder` — basic search bar
+- `filters`, `filterValues`, `onFiltersApply`, `onFiltersClear` — basic FilterBar filters
+- `title`, `actions`, `toolbar` — header chrome
+
+Minimal portal usage example (drop into any `frontend/[orgSlug]/portal/.../page.tsx`):
+
+```tsx
+'use client'
+import * as React from 'react'
+import { DataTable } from '@open-mercato/ui'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+type PortalOrderRow = {
+  id: string
+  number: string
+  status: string
+  totalLabel: string
+}
+
+export default function PortalOrdersList({ orgSlug }: { orgSlug: string }) {
+  const t = useT()
+  const [rows, setRows] = React.useState<PortalOrderRow[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+    setIsLoading(true)
+    apiCall<{ items: PortalOrderRow[] }>(`/api/portal/orders?orgSlug=${encodeURIComponent(orgSlug)}`)
+      .then((res) => { if (!cancelled) setRows(res.data?.items ?? []) })
+      .finally(() => { if (!cancelled) setIsLoading(false) })
+    return () => { cancelled = true }
+  }, [orgSlug])
+
+  return (
+    <DataTable<PortalOrderRow>
+      title={t('orders.title', { fallback: 'Your orders' })}
+      columns={[
+        { header: t('orders.number'), accessorKey: 'number' },
+        { header: t('orders.status'), accessorKey: 'status' },
+        { header: t('orders.total'), accessorKey: 'totalLabel' },
+      ]}
+      data={rows}
+      isLoading={isLoading}
+      onRowClick={(row) => { window.location.href = `/${orgSlug}/portal/orders/${row.id}` }}
+      emptyState={t('orders.empty', { fallback: 'No orders yet.' })}
+    />
+  )
+}
+```
+
+Notes:
+- The example deliberately omits `exporter`, `perspective`, `advancedFilter`, `columnChooser`, `injectionSpotId`, and `replacementHandle` — those are backoffice-only.
+- Wrap mutation calls with `useGuardedMutation(...).runMutation(...)` per the **UI & HTTP** rules in the root `AGENTS.md` if the row actions perform writes.
+- Gate the page with `requireCustomerAuth` and `requireCustomerFeatures` in the sibling `page.meta.ts` (see Portal Page Metadata below).
 
 ## CrudForm Field Injection (UMES Phase G)
 
@@ -288,6 +429,8 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 ## Portal Extension
 
 The portal extensibility system lets app modules build customer-facing pages that integrate with the shared portal shell, navigation, auth, and event bridge.
+
+> **Portal list views**: use `DataTable` from `@open-mercato/ui` for any portal page that displays a list of records (orders, addresses, invoices, etc.). Do not hand-roll `<table>` markup. See **DataTable Guidelines → Using DataTable in Portal Pages** above for the portal-safe prop subset and a minimal example.
 
 ### Portal Hooks (`packages/ui/src/portal/hooks/`)
 

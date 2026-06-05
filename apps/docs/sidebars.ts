@@ -118,6 +118,16 @@ const sidebars: SidebarsConfig = {
           items: [
             "user-guide/integrations",
             "user-guide/webhooks",
+            {
+              type: "category",
+              label: "Email (Communication Channels)",
+              link: { type: "doc", id: "user-guide/communication-channels" },
+              items: [
+                "user-guide/communication-channels-gmail",
+                "user-guide/communication-channels-imap",
+                "user-guide/customers-email",
+              ],
+            },
             "user-guide/akeneo-pim",
             "user-guide/checkout",
             "user-guide/stripe-payments",
@@ -169,7 +179,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Architecture",
-      items: ["architecture/system-overview", "architecture/generators", "architecture/cache-cli", "architecture/data-encryption"],
+      items: ["architecture/system-overview", "architecture/module-dependencies", "architecture/generators", "architecture/cache-cli", "architecture/data-encryption"],
     },
     {
       type: "category",
@@ -339,14 +349,39 @@ const sidebars: SidebarsConfig = {
           label: "Modules",
           items: [
             "framework/modules/overview",
+            {
+              type: "category",
+              label: "Core Modules",
+              items: [
+                "framework/modules/core-modules",
+                {
+                  type: "category",
+                  label: "Sales",
+                  items: [
+                    "framework/modules/sales/index",
+                    "framework/modules/sales/injection",
+                    "framework/modules/sales/events",
+                    "framework/modules/sales/subscribers",
+                    "framework/modules/sales/data-model",
+                    "framework/modules/sales/acl",
+                    "framework/modules/sales/services",
+                    "framework/modules/sales/calculations",
+                    "framework/modules/sales/commands",
+                    "framework/modules/sales/search",
+                    "framework/modules/sales/frontend-pages",
+                  ],
+                },
+              ],
+            },
             "framework/modules/official-modules",
+            "framework/modules/official-modules-development",
             "framework/modules/routes-and-pages",
+            "framework/modules/overrides",
             "framework/modules/notifications",
             "framework/modules/messages",
             "framework/modules/currencies",
             "framework/modules/integrations-data-sync",
             "framework/modules/sales-providers",
-            "framework/modules/sales-calculations",
             "framework/modules/payment-gateways",
             "framework/modules/shipping-carriers",
             "framework/modules/building-gateway-provider",
@@ -432,6 +467,11 @@ const sidebars: SidebarsConfig = {
           ],
         },
         "framework/webhooks/overview",
+        {
+          type: "category",
+          label: "Data Integrity",
+          items: ["framework/data-integrity/concurrency-locking"],
+        },
         "framework/pricing-tax-overrides",
         "framework/rbac/overview",
         "framework/feature-toggles/overview",

@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import { SearchX } from 'lucide-react'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import {
   Select,
   SelectContent,
@@ -13,11 +15,11 @@ import {
 } from '@open-mercato/ui/primitives/select'
 
 const METHOD_STYLES: Record<string, string> = {
-  GET: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
-  POST: 'bg-blue-100 text-blue-800 border border-blue-200',
-  PUT: 'bg-amber-100 text-amber-800 border border-amber-200',
-  PATCH: 'bg-purple-100 text-purple-800 border border-purple-200',
-  DELETE: 'bg-rose-100 text-rose-800 border border-rose-200',
+  GET: 'bg-status-success-bg text-status-success-text border border-status-success-border',
+  POST: 'bg-status-info-bg text-status-info-text border border-status-info-border',
+  PUT: 'bg-status-warning-bg text-status-warning-text border border-status-warning-border',
+  PATCH: 'bg-brand-violet/10 text-brand-violet border border-brand-violet/30',
+  DELETE: 'bg-status-error-bg text-status-error-text border border-status-error-border',
 }
 
 const PREFERRED_MEDIA_TYPES = [
@@ -598,11 +600,11 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                           </div>
                           <div className="flex items-center gap-2 text-overline text-muted-foreground">
                             {operation.operation?.['x-require-auth'] ? (
-                              <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-900">Auth required</span>
+                              <span className="rounded bg-status-warning-bg px-2 py-0.5 text-status-warning-text">Auth required</span>
                             ) : null}
                             {Array.isArray(operation.operation?.['x-require-features'])
                               ? operation.operation['x-require-features'].map((feature: string) => (
-                                  <span key={feature} className="rounded bg-blue-100 px-2 py-0.5 text-blue-900">
+                                  <span key={feature} className="rounded bg-status-info-bg px-2 py-0.5 text-status-info-text">
                                     {feature}
                                   </span>
                                 ))
@@ -781,9 +783,11 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
               )
             })}
             {!categories.length ? (
-              <div className="rounded-lg border border-dashed bg-muted/50 p-6 text-center text-sm text-muted-foreground">
-                No endpoints match your filters. Try adjusting the method filters or clearing the search query.
-              </div>
+              <EmptyState
+                icon={<SearchX className="h-8 w-8" aria-hidden="true" />}
+                title="No endpoints match your filters."
+                description="Try adjusting the method filters or clearing the search query."
+              />
             ) : null}
           </div>
         </section>
@@ -854,7 +858,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                           type="button"
                           className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm ${
                             selectedOperation?.id === operation.id
-                              ? 'border-primary text-primary'
+                              ? 'border-accent-indigo text-foreground'
                               : 'border-border text-muted-foreground'
                           }`}
                           onClick={() => handleSelectOperation(operation.id)}
@@ -1336,7 +1340,7 @@ function TesterPanel(props: TesterPanelProps) {
           </p>
         ) : null}
         {requestPreview?.baseError ? (
-          <p className="text-xs text-rose-600">{requestPreview.baseError}</p>
+          <p className="text-xs text-destructive">{requestPreview.baseError}</p>
         ) : null}
       </label>
 
@@ -1358,7 +1362,7 @@ function TesterPanel(props: TesterPanelProps) {
               <label key={parameter.name} className="space-y-1">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>{parameter.name}</span>
-                  {parameter.required ? <span className="text-amber-600">required</span> : null}
+                  {parameter.required ? <span className="text-status-warning-text">required</span> : null}
                 </div>
                 <Input
                   type="text"
@@ -1385,7 +1389,7 @@ function TesterPanel(props: TesterPanelProps) {
               <label key={parameter.name} className="space-y-1">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>{parameter.name}</span>
-                  {parameter.required ? <span className="text-amber-600">required</span> : null}
+                  {parameter.required ? <span className="text-status-warning-text">required</span> : null}
                 </div>
                 <Input
                   type="text"
@@ -1421,7 +1425,7 @@ function TesterPanel(props: TesterPanelProps) {
       ) : null}
 
       {requestPreview?.bodyParseError ? (
-        <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <div className="rounded border border-status-warning-border bg-status-warning-bg px-3 py-2 text-xs text-status-warning-text">
           {requestPreview.bodyParseError}
         </div>
       ) : null}
@@ -1442,13 +1446,13 @@ function TesterPanel(props: TesterPanelProps) {
         {isLoading ? 'Sending…' : 'Send request'}
       </button>
 
-      {error ? <div className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div> : null}
+      {error ? <div className="rounded border border-status-error-border bg-status-error-bg px-3 py-2 text-xs text-status-error-text">{error}</div> : null}
 
       {response ? (
         <section className="space-y-2 text-sm">
           <div className="flex items-center justify-between">
             <div className="font-medium text-foreground">
-              Response · <span className={response.ok ? 'text-emerald-600' : 'text-rose-600'}>{response.status}</span>
+              Response · <span className={response.ok ? 'text-status-success-text' : 'text-destructive'}>{response.status}</span>
             </div>
             <div className="text-xs text-muted-foreground">{response.durationMs} ms</div>
           </div>

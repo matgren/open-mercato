@@ -5,15 +5,17 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ActivitiesSection, NotesSection, type SectionAction, type TagOption } from '@open-mercato/ui/backend/detail'
+import { ActivitiesSection, NotesSection, RecordNotFoundState, type SectionAction, type TagOption } from '@open-mercato/ui/backend/detail'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/resources/lib/resourceSchedule'
 import { RESOURCES_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/resources/lib/resourceCustomFields'
@@ -82,6 +84,14 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const router = useRouter()
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
+  // Capture the record (incl. its optimistic-lock `updatedAt`) exactly ONCE per
+  // resource. The load effect's deps include identity-unstable values (`t`,
+  // `resolveFieldsetCode`), so without this guard a re-render would re-fetch and
+  // overwrite `initialValues.updatedAt` with a newer server value mid-edit —
+  // silently defeating optimistic locking (a concurrent change would no longer be
+  // detected) and making the conflict flaky.
+  const loadedResourceIdRef = React.useRef<string | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [activeDetailTab, setActiveDetailTab] = React.useState<'notes' | 'activities'>('notes')
@@ -410,6 +420,10 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
 
   React.useEffect(() => {
     if (!resourceId || !resourceTypesLoaded) return
+    // Load once per resource — never re-fetch (and thereby refresh the captured
+    // optimistic-lock token) on subsequent re-renders. See loadedResourceIdRef.
+    if (loadedResourceIdRef.current === resourceId) return
+    setIsNotFound(false)
     let cancelled = false
     async function loadResource() {
       try {
@@ -420,13 +434,13 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
         const record = await readApiResultOrThrow<ResourceResponse>(`/api/resources/resources?${params.toString()}`)
         const resourceRaw = Array.isArray(record?.items) ? record.items[0] : null
         const resource = resourceRaw ? normalizeResourceRecord(resourceRaw) : null
-        if (!resource) throw new Error(t('resources.resources.form.errors.notFound', 'Resource not found.'))
+        if (!resource) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         if (!cancelled) {
-          const customValues: Record<string, unknown> = {}
-          for (const [key, value] of Object.entries(resource)) {
-            if (key.startsWith('cf_')) customValues[key] = value
-            else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
-          }
+          loadedResourceIdRef.current = resourceId ?? null
+          const customValues = extractCustomFieldEntries(resource)
           setTags(Array.isArray(resource.tags) ? resource.tags : [])
           setAvailabilityRuleSetId(
             typeof resource.availabilityRuleSetId === 'string'
@@ -444,6 +458,12 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
             capacityUnitValue: resource.capacityUnitValue ?? '',
             appearance: { icon: resource.appearanceIcon ?? null, color: resource.appearanceColor ?? null },
             isActive: resource.isActive ?? true,
+            updatedAt:
+              typeof resource.updatedAt === 'string'
+                ? resource.updatedAt
+                : typeof resource.updated_at === 'string'
+                  ? resource.updated_at
+                  : null,
             customFieldsetCode: resource.resourceTypeId
               ? resolveFieldsetCode(resource.resourceTypeId)
               : RESOURCES_RESOURCE_FIELDSET_DEFAULT,
@@ -470,17 +490,39 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
 
   const handleRulesetChange = React.useCallback(async (nextId: string | null) => {
     if (!resourceId) return
-    await updateCrud('resources/resources', { id: resourceId, availabilityRuleSetId: nextId }, {
+    const updateSchedule = () => updateCrud('resources/resources', { id: resourceId, availabilityRuleSetId: nextId }, {
       errorMessage: t('resources.resources.availability.ruleset.updateError', 'Failed to update schedule.'),
     })
+    const resourceOptimisticLockHeader = buildOptimisticLockHeader(
+      typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null,
+    )
+    if (Object.keys(resourceOptimisticLockHeader).length > 0) {
+      await withScopedApiRequestHeaders(resourceOptimisticLockHeader, updateSchedule)
+    } else {
+      await updateSchedule()
+    }
     setAvailabilityRuleSetId(nextId)
     flash(t('resources.resources.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
-  }, [resourceId, t])
+  }, [initialValues?.updatedAt, resourceId, t])
 
   const resourceTitle =
     typeof initialValues?.name === 'string' && initialValues.name.trim().length > 0
       ? initialValues.name.trim()
       : t('resources.resources.detail.untitled', 'Unnamed resource')
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('resources.resources.form.errors.notFound', 'Resource not found.')}
+            backHref="/backend/resources/resources"
+            backLabel={t('resources.resources.detail.back', 'Back to resources')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>
@@ -527,7 +569,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                   size="sm"
                   className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-2 font-medium ${
                     activeTab === tab.id
-                      ? 'border-primary text-foreground'
+                      ? 'border-accent-indigo text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                   onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
@@ -551,7 +593,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                         size="sm"
                         className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-1 font-medium ${
                           activeDetailTab === tab.id
-                            ? 'border-primary text-foreground'
+                            ? 'border-accent-indigo text-foreground'
                             : 'border-transparent text-muted-foreground hover:text-foreground'
                         }`}
                         onClick={() => setActiveDetailTab(tab.id)}
@@ -631,6 +673,11 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                   successRedirect="/backend/resources/resources"
                   formConfig={formConfig}
                   initialValues={initialValues ?? undefined}
+                  optimisticLockUpdatedAt={
+                    typeof initialValues?.updatedAt === 'string'
+                      ? initialValues.updatedAt
+                      : null
+                  }
                   onSubmit={handleSubmit}
                   onDelete={handleDelete}
                   isLoading={!initialValues}

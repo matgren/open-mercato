@@ -234,6 +234,29 @@ function normalizeEmail(value: string | null | undefined): string | null {
   return normalized ? normalized.toLowerCase() : null
 }
 
+type PersonDeleteBlockerCounts = {
+  dealLinks: number
+}
+
+function buildPersonHasDependentsError(
+  translate: (key: string, fallback?: string, params?: Record<string, string | number>) => string,
+  counts: PersonDeleteBlockerCounts,
+): CrudHttpError {
+  const blockers: string[] = []
+  if (counts.dealLinks > 0) {
+    blockers.push(
+      translate('customers.people.delete.blockers.deals', 'linked deals ({{count}})', { count: counts.dealLinks }),
+    )
+  }
+  const summary = blockers.join(', ')
+  const message = translate(
+    'customers.people.delete.blocked',
+    'Cannot delete person: {{blockers}}. Please unlink or reassign first.',
+    { blockers: summary },
+  )
+  return new CrudHttpError(422, { error: message, code: 'PERSON_HAS_DEPENDENTS' })
+}
+
 function serializePersonSnapshot(
   entity: CustomerEntity,
   profile: CustomerPersonProfile,
@@ -843,7 +866,8 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     })
     await emitQueryIndexUpsertEvents(ctx, [personEntityIndexEntry(record)])
 
-    return { entityId: record.id }
+    // Expose the freshly-bumped updatedAt for inline-edit sequential-save lock refresh (#2055).
+    return { entityId: record.id, updatedAt: record.updatedAt }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1010,22 +1034,32 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const record = assertFound(entity, 'Person not found')
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
-      const profile = await em.findOne(CustomerPersonProfile, { entity: record })
-      if (profile) em.remove(profile)
-      await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerComment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerActivity, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerInteraction, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerTodoLink, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerTagAssignment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-      await em.nativeDelete(CustomerDealPersonLink, { person: record })
-      await em.nativeDelete(CustomerPersonCompanyLink, { person: record })
-      if (profile) {
-        await em.nativeDelete(CustomFieldValue, { entityId: PERSON_ENTITY_ID, recordId: profile.id })
+
+      const dealLinks = await em.count(CustomerDealPersonLink, { person: record })
+      if (dealLinks > 0) {
+        const { translate } = await resolveTranslations()
+        throw buildPersonHasDependentsError(translate, { dealLinks })
       }
-      await em.nativeDelete(CustomFieldValue, { entityId: CUSTOMER_ENTITY_ID, recordId: record.id })
-      em.remove(record)
-      await em.flush()
+
+      const profile = await em.findOne(CustomerPersonProfile, { entity: record })
+      await withAtomicFlush(em, [
+        async () => {
+          if (profile) em.remove(profile)
+          await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+          await em.nativeDelete(CustomerComment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+          await em.nativeDelete(CustomerActivity, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+          await em.nativeDelete(CustomerInteraction, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+          await em.nativeDelete(CustomerTodoLink, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+          await em.nativeDelete(CustomerTagAssignment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+          await em.nativeDelete(CustomerDealPersonLink, { person: record })
+          await em.nativeDelete(CustomerPersonCompanyLink, { person: record })
+          if (profile) {
+            await em.nativeDelete(CustomFieldValue, { entityId: PERSON_ENTITY_ID, recordId: profile.id })
+          }
+          await em.nativeDelete(CustomFieldValue, { entityId: CUSTOMER_ENTITY_ID, recordId: record.id })
+          em.remove(record)
+        },
+      ], { transaction: true })
 
       const indexDeletes: QueryIndexEventEntry[] = []
       const dealUpserts: QueryIndexEventEntry[] = []

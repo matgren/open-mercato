@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { sql } from 'kysely'
 import { resolveTranslationsRouteContext, requireTranslationFeatures } from '@open-mercato/core/modules/translations/api/context'
 import { translationBodySchema, entityTypeParamSchema, entityIdParamSchema } from '@open-mercato/core/modules/translations/data/validators'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -49,7 +49,7 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
       updatedAt: row.updated_at,
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     if (err instanceof z.ZodError) {
@@ -69,7 +69,15 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
       entityId: ctx.params?.entityId,
     })
 
-    const rawBody = await req.json().catch(() => ({}))
+    const rawText = await req.text()
+    let rawBody: unknown = {}
+    if (rawText.trim().length > 0) {
+      try {
+        rawBody = JSON.parse(rawText)
+      } catch {
+        return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+      }
+    }
     const translations = translationBodySchema.parse(rawBody)
 
     const commandBus = context.container.resolve('commandBus') as CommandBus
@@ -122,7 +130,7 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
 
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     if (err instanceof z.ZodError) {
@@ -179,7 +187,7 @@ export async function DELETE(req: Request, ctx: { params?: { entityType?: string
 
     return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     if (err instanceof z.ZodError) {

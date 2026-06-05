@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import {
   CustomerEntity,
   CustomerCompanyProfile,
@@ -173,11 +174,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       throw new CrudHttpError(404, { error: translate('customers.errors.person_not_found', 'Person not found') })
     }
 
-    const allowedOrgIds = new Set<string>()
-    if (scope?.filterIds?.length) scope.filterIds.forEach((entry) => allowedOrgIds.add(entry))
-    else if (auth.orgId) allowedOrgIds.add(auth.orgId)
-
-    if (allowedOrgIds.size > 0 && !allowedOrgIds.has(person.organizationId)) {
+    if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: person.organizationId })) {
       throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
     }
 
@@ -380,7 +377,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       totalPages,
     })
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/people/[id]/companies/enriched] GET failed', err)

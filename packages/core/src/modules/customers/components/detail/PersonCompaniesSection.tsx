@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { ArrowLeft, ArrowRight, Link2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Building2, Link2 } from 'lucide-react'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -237,6 +238,7 @@ export function PersonCompaniesSection({
         for (const companyId of removedIds) {
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: person-company link add/remove
               apiCallOrThrow(
                 `/api/customers/people/${encodeURIComponent(personId)}/companies/${encodeURIComponent(companyId)}`,
                 { method: 'DELETE' },
@@ -248,6 +250,7 @@ export function PersonCompaniesSection({
         for (const companyId of addedIds) {
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: person-company link add/remove
               apiCallOrThrow(
                 `/api/customers/people/${encodeURIComponent(personId)}/companies`,
                 {
@@ -270,6 +273,7 @@ export function PersonCompaniesSection({
         ) {
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: person-company link set-primary (add/remove)
               apiCallOrThrow(
                 `/api/customers/people/${encodeURIComponent(personId)}/companies/${encodeURIComponent(nextPrimaryId)}`,
                 {
@@ -331,6 +335,7 @@ export function PersonCompaniesSection({
       try {
         await runWriteMutation(
           () =>
+            // optimistic-lock-exempt: person-company link add/remove
             apiCallOrThrow(
               `/api/customers/people/${encodeURIComponent(personId)}/companies/${encodeURIComponent(companyId)}`,
               { method: 'DELETE' },
@@ -437,17 +442,20 @@ export function PersonCompaniesSection({
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border/60 px-6 py-12 text-center text-sm text-muted-foreground">
-            {search.trim().length
-              ? t(
-                  'customers.people.detail.companies.noSearchResults',
-                  'No linked companies match your search.',
-                )
-              : t(
-                  'customers.people.detail.empty.companies',
-                  'No company linked to this person.',
-                )}
-          </div>
+          <EmptyState
+            icon={<Building2 className="h-8 w-8" aria-hidden="true" />}
+            title={
+              search.trim().length
+                ? t(
+                    'customers.people.detail.companies.noSearchResults',
+                    'No linked companies match your search.',
+                  )
+                : t(
+                    'customers.people.detail.empty.companies',
+                    'No company linked to this person.',
+                  )
+            }
+          />
         ) : (
           <>
             <div className="space-y-4">
